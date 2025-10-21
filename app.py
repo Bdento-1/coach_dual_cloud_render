@@ -1,48 +1,15 @@
-# app.py
-import os, json, base64, hashlib
+import os, json, base64, hashlib, time
+from typing import Dict, Any
 from flask import Flask, request, jsonify
-from pydantic import BaseModel, ValidationError, field_validator
-from openai import OpenAI
+import requests
 
-# ===== Config =====
-MODEL_TEXT = os.getenv("LLM_MODEL", "gpt-5")
-MODEL_TTS  = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
-VOICE      = os.getenv("VOICE", "alloy")
-WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "")
-USER_TAG   = os.getenv("USER_TAG", "kunthan-cloud-01")
-
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-app = Flask(__name__)
-
-# ===== Schema =====
-class Alert(BaseModel):
-    symbol: str
-    tf: str
-    close: float
-    volume: float
-
-    @field_validator("symbol")
-    @classmethod
-    def sym_ok(cls, v):
-        v = v.upper().strip()
-        if not (1 <= len(v) <= 15 and v.replace(".", "").isalnum()):
-            raise ValueError("invalid symbol")
-        return v
-
-    @field_validator("tf")
-    @classmethod
-    def tf_ok(cls, v):
-        v = v.upper().strip()
-        allowed = {"1M","5","15","30","1H","2H","4H","D","W","M"}
-        if v not in allowed:
-            raise ValueError("invalid timeframe")
-        return v
-
-# ===== Helpers =====
-def safety_identifier(user_tag: str, payload: dict) -> str:
-    h = hashlib.sha256()
-    h.update((user_tag + "::" + json.dumps(payload, sort_keys=True)).encode())
-    return h.hexdigest()
+# ==== ENV ====
+OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY", "")
+GOOGLE_TTS_KEY   = os.getenv("GOOGLE_TTS_KEY", "")              # <-- ใส่ใน Render
+WEBHOOK_TOKEN    = os.getenv("WEBHOOK_TOKEN", "kunthan-voice-01")
+DEFAULT_VOICE    = os.getenv("VOICE", "th-TH-Standard-B")       # Google TTS ชายไทยชัด
+DEFAULT_RATE     = float(os.getenv("VOICE_RATE", "0.92"))       # 1.0 ปกติ (0.9 ช้าลง)
+DEFAULT_PITCH    = float(os.getenv("VOICE_PITCH", "-2.0"))      # นุ่มลงเล็กน้อย
 
 SYSTEM_PROMPT = """คุณคือ Gatekeeper v2.3.1 Voice Coach (ภาษาไทยเท่านั้น)
 กติกาเคร่งครัด:
@@ -52,86 +19,155 @@ SYSTEM_PROMPT = """คุณคือ Gatekeeper v2.3.1 Voice Coach (ภาษ�
 - เขียนสั้น กระชับ ชัดเจน เป็นภาษาไทยล้วน
 - ปิดท้ายด้วย: 'สำหรับการศึกษาเท่านั้น'"""
 
+app = Flask(__name__)
 
-def build_user_prompt(a: Alert) -> str:
-    return (
-        f"Symbol: {a.symbol}\n"
-        f"TF: {a.tf}\n"
-        f"Close: {a.close}\n"
-        f"Volume: {a.volume}\n"
-        "Locked Key Levels (EL preset): W:100.00 | D:105.45/94.95 | S:101.95/96.13 | Bonus:87.84.\n"
-        "Flip if close >= 105.45 (confirmed); never reuse broken resistance; trap zone ~99-101.\n"
+# ========== Utilities ==========
+def safety_id(payload: Dict[str, Any]) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def want_slow(pace: str) -> float:
+    if pace == "slow":  return 0.90
+    if pace == "fast":  return 1.05
+    return DEFAULT_RATE
+
+# ========== OpenAI (text + fallback TTS) ==========
+def gpt5_analyst(msg: Dict[str, Any]) -> str:
+    """
+    เรียกข้อความสรุปแบบปลอดภัยจาก OpenAI (ไทยล้วน ไม่มีคำแนะนำการเงิน)
+    """
+    # ใช้ HTTP REST ตรง เพื่อความง่าย (ไม่พึ่งไลบรารี)
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    user = (
+        f"สัญลักษณ์:{msg.get('symbol')} | TF:{msg.get('tf')}\n"
+        f"close:{msg.get('close')} volume:{msg.get('volume')}\n"
+        f"เขียนไทยล้วน สั้น กระชับ ตามกติกา."
     )
+    body = {
+        "model": "gpt-5",           # ใช้รุ่นล่าสุดในบัญชีของคุณ
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user}
+        ],
+        # อย่าตั้ง temperature/ฯลฯ ถ้ารุ่นไม่รองรับ
+    }
+    r = requests.post(url, headers=headers, json=body, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    text = data["choices"][0]["message"]["content"].strip()
+    # เติมหมายเหตุความปลอดภัยเสมอ
+    if "สำหรับการศึกษาเท่านั้น" not in text:
+        text += "\n\nสำหรับการศึกษาเท่านั้น"
+    return text
 
-# ===== Routes =====
-@app.get("/")
-def root():
-    return "Gatekeeper Voice Coach v2.3.1 — OK", 200
+def tts_openai(text: str, voice_name: str = "alloy") -> bytes:
+    """
+    Fallback: OpenAI TTS (กรณี Google ใช้ไม่ได้)
+    """
+    url = "https://api.openai.com/v1/audio/speech"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": "gpt-4o-mini-tts",
+        "voice": voice_name,
+        "input": text
+    }
+    r = requests.post(url, headers=headers, json=body, timeout=60)
+    r.raise_for_status()
+    return r.content  # mp3 bytes
 
+# ========== Google TTS (REST + API Key) ==========
+def tts_google_rest(text: str, voice_name: str, rate: float, pitch: float) -> bytes:
+    """
+    เรียก Google Cloud Text-to-Speech ผ่าน REST ด้วย API Key เดียว (ไม่ต้อง Service Account)
+    """
+    assert GOOGLE_TTS_KEY, "GOOGLE_TTS_KEY not set"
+    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_KEY}"
+    body = {
+        "input": {"text": text},
+        "voice": {"languageCode": "th-TH", "name": voice_name},
+        "audioConfig": {
+            "audioEncoding": "MP3",
+            "speakingRate": rate,  # 1.0 ปกติ; 0.9 ช้าลง
+            "pitch": pitch         # -2.0 นุ่มลง
+        },
+    }
+    r = requests.post(url, json=body, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    if "audioContent" not in data:
+        raise RuntimeError(f"TTS error: {data}")
+    return base64.b64decode(data["audioContent"])
+
+# ========== Routes ==========
 @app.get("/healthz")
 def healthz():
-    return jsonify(ok=True, model=MODEL_TEXT, voice=VOICE)
+    return jsonify({"ok": True, "model": "gpt-5", "voice": DEFAULT_VOICE})
 
 @app.post("/coach_dual")
 def coach_dual():
-    # --- รับ token จาก Header → URL → JSON (ตามลำดับ)
-    incoming_token = request.headers.get("X-Webhook-Token") or request.args.get("token")
-    data = {}
+    # --- ตรวจ token ---
+    token_q = request.args.get("token") or request.headers.get("X-Webhook-Token", "")
+    if token_q != WEBHOOK_TOKEN:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    # --- รับข้อมูล ---
     try:
-        data = request.get_json(force=True, silent=False)
+        payload = request.get_json(force=True) or {}
     except Exception:
-        data = {}
-    if not incoming_token and isinstance(data, dict):
-        incoming_token = data.get("token")
+        return jsonify({"ok": False, "error": "invalid_json"}), 400
 
-    if WEBHOOK_TOKEN and incoming_token != WEBHOOK_TOKEN:
-        return jsonify(error="unauthorized"), 401
-
-    # Validate payload
+    # --- ทำข้อความวิเคราะห์แบบปลอดภัย ---
     try:
-        alert = Alert(**data)
-    except (TypeError, ValidationError) as e:
-        return jsonify(error="bad_payload", detail=str(e)), 400
-
-    sid = safety_identifier(USER_TAG, data)
-
-    # Text analysis (no temperature param)
-    try:
-        chat = client.chat.completions.create(
-            model=MODEL_TEXT,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT + f"\n[safety_identifier:{sid}]"},
-                {"role": "user", "content": build_user_prompt(alert)}
-            ],
-        )
-        text = chat.choices[0].message.content.strip()
+        text = gpt5_analyst(payload)
     except Exception as e:
-        return jsonify(error="openai_chat_failed", detail=str(e)), 502
+        return jsonify({"ok": False, "error": "openai_chat_failed", "detail": str(e)}), 400
 
-    # Second-layer policy guard
-    blocked = ["buy","sell","enter","exit","long","short","ซื้อ","ขาย","เปิดสถานะ","ปิดสถานะ"]
-    if any(b in text.lower() for b in blocked):
-        text = ("คำอธิบายถูกปรับเพื่อความปลอดภัยเชิงนโยบาย: ให้ข้อมูลเชิงโครงสร้างเท่านั้น "
-                "(flip/trap/volume). สำหรับการศึกษาเท่านั้น / For educational purposes only.")
+    # --- เลือกเสียง/ความเร็ว ---
+    pace = (request.args.get("pace") or "").lower().strip()
+    rate = want_slow(pace)
+    voice_param = request.args.get("voice") or DEFAULT_VOICE
 
-    # TTS → base64 mp3
-    audio_b64 = None
+    # --- สร้างเสียง (Google → fallback OpenAI) ---
+    audio_bytes = b""
+    audio_mime  = "audio/mpeg"
+    used_voice  = voice_param
+    engine      = "google-tts"
+
     try:
-        speech = client.audio.speech.create(model=MODEL_TTS, voice=VOICE, input=text)
-        audio_bytes = speech.read()
-        audio_b64 = base64.b64encode(audio_bytes).decode()
-    except Exception:
-        audio_b64 = None
+        if GOOGLE_TTS_KEY:
+            audio_bytes = tts_google_rest(text, voice_param, rate, DEFAULT_PITCH)
+        else:
+            raise RuntimeError("GOOGLE_TTS_KEY missing")
+    except Exception as e:
+        # Fallback ไป OpenAI TTS (อังกฤษสำเนียงอ่านไทยได้ระดับหนึ่ง)
+        try:
+            audio_bytes = tts_openai(text, voice_name="fable")
+            used_voice  = "fable"
+            engine      = "openai-tts"
+        except Exception as e2:
+            return jsonify({"ok": False, "error": "tts_failed", "detail": f"{e}; {e2}"}), 400
 
-    return jsonify(
-        ok=True,
-        safety_id=sid,
-        text=text,
-        audio_b64=audio_b64,
-        audio_mime="audio/mpeg"
-    ), 200
+    # --- ตอบกลับ ---
+    resp = {
+        "ok": True,
+        "engine": engine,
+        "voice": used_voice,
+        "audio_mime": audio_mime,
+        "text": text,
+        "safety_id": safety_id({
+            "ts": int(time.time()), "symbol": payload.get("symbol"), "tf": payload.get("tf")
+        }),
+        "audio_b64": base64.b64encode(audio_bytes).decode("utf-8"),
+    }
+    return jsonify(resp)
 
-# ===== Entrypoint (Render sets $PORT) =====
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8000"))
-    app.run(host="0.0.0.0", port=port)
+    # สำหรับรันโลคัล (Render จะใช้ gunicorn ตาม Start Command ด้านล่าง)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5053")), debug=False)

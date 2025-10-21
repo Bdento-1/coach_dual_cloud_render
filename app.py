@@ -1,3 +1,4 @@
+# app.py
 import os, json, base64, hashlib
 from flask import Flask, request, jsonify
 from pydantic import BaseModel, ValidationError, field_validator
@@ -56,14 +57,20 @@ def build_user_prompt(a: Alert) -> str:
         "Flip if close >= 105.45 (confirmed); never reuse broken resistance; trap zone ~99-101.\n"
     )
 
+@app.get("/")
+def root():
+    return "Gatekeeper Voice Coach v2.3.1 — OK", 200
+
 @app.get("/healthz")
 def healthz():
     return jsonify(ok=True, model=MODEL_TEXT, voice=VOICE)
 
 @app.post("/coach_dual")
 def coach_dual():
+    # header token (ถ้าตั้งไว้)
     if WEBHOOK_TOKEN and request.headers.get("X-Webhook-Token") != WEBHOOK_TOKEN:
         return jsonify(error="unauthorized"), 401
+    # รับ/ตรวจ payload
     try:
         data = request.get_json(force=True, silent=False)
         alert = Alert(**data)
@@ -72,10 +79,10 @@ def coach_dual():
 
     sid = safety_identifier(USER_TAG, data)
 
+    # วิเคราะห์ข้อความ (ไม่ใส่ temperature)
     try:
         chat = client.chat.completions.create(
             model=MODEL_TEXT,
-            temperature=1,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT + f"\n[safety_identifier:{sid}]"},
                 {"role": "user", "content": build_user_prompt(alert)}
@@ -83,13 +90,15 @@ def coach_dual():
         )
         text = chat.choices[0].message.content.strip()
     except Exception as e:
-        return jsonify(error="openai_chat_failed", detail=str(e)), 502
+        return jsonify(error="openai_chat_failed", detail=str(e)}), 502
 
+    # ฟิลเตอร์คำต้องห้าม (กันหลุดนโยบายชั้นที่สอง)
     blocked = ["buy","sell","enter","exit","long","short","ซื้อ","ขาย","เปิดสถานะ","ปิดสถานะ"]
     if any(b in text.lower() for b in blocked):
         text = ("คำอธิบายถูกปรับเพื่อความปลอดภัยเชิงนโยบาย: ให้ข้อมูลเชิงโครงสร้างเท่านั้น "
                 "(flip/trap/volume). สำหรับการศึกษาเท่านั้น / For educational purposes only.")
 
+    # สร้างเสียงเป็น base64 (ไม่เขียนไฟล์)
     audio_b64 = None
     try:
         speech = client.audio.speech.create(model=MODEL_TTS, voice=VOICE, input=text)

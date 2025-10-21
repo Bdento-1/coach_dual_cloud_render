@@ -1,3 +1,4 @@
+import hashlib
 from openai import OpenAI
 import os
 from flask import Flask, request, jsonify

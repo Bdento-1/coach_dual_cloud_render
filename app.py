@@ -1,21 +1,19 @@
-import hashlib
-from openai import OpenAI
-import os
 from flask import Flask, request, jsonify
+import os, time, base64, hashlib
+from openai import OpenAI
 
 app = Flask(__name__)
 
-# ==== ENV ====
+# ===== ENV =====
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_ORG = os.getenv("OPENAI_ORG")  # อาจไม่มีได้
-OPENAI_HTTP_TIMEOUT = int(os.getenv("OPENAI_HTTP_TIMEOUT", "70"))
-OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "3"))
+OPENAI_ORG = os.getenv("OPENAI_ORG")
+OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "70"))
+OPENAI_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "3"))
 WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "kunthan-voice-01")
 
 if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY is missing. Set it in Render Environment.")
+    raise RuntimeError("OPENAI_API_KEY is missing.")
 
-# สร้าง client แบบปลอดภัย
 client_kwargs = {"api_key": OPENAI_API_KEY}
 if OPENAI_ORG:
     client_kwargs["organization"] = OPENAI_ORG
@@ -30,56 +28,59 @@ SYSTEM_PROMPT = (
 
 def ask_gpt(messages):
     wait = 0.5
-    last_err = None
-    for i in range(OPENAI_MAX_RETRIES):
+    last = None
+    for _ in range(OPENAI_RETRIES):
         try:
-            resp = client.chat.completions.create(
+            r = client.chat.completions.create(
                 model="gpt-5",
                 messages=messages,
-                timeout=OPENAI_HTTP_TIMEOUT,  # สำคัญ
+                timeout=OPENAI_TIMEOUT,
             )
-            return resp.choices[0].message.content
+            return r.choices[0].message.content
         except Exception as e:
-            last_err = e
+            last = e
             time.sleep(wait)
             wait *= 2
-    raise last_err
+    raise last
 
 def coach_text(symbol, tf, close, volume):
-    user_prompt = (
+    user = (
         f"วิเคราะห์หุ้น {symbol} บนกรอบเวลา {tf} "
         f"ราคาปิด {close} ปริมาณ {volume}. "
         "อธิบายโครงสร้างราคาและแรงซื้อขายอย่างเป็นกลาง"
     )
     try:
-        text = ask_gpt([
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
-        ])
-    except Exception as e:
-        # Fallback เมื่อ GPT ช้า/ล่ม
-        text = (
-            f"ระบบวิเคราะห์ช้าชั่วคราว: {symbol} {tf} ราคาปิด {close}. "
-            "ข้อมูลนี้เพื่อการศึกษาเท่านั้น."
+        txt = ask_gpt(
+            [{"role": "system", "content": SYSTEM_PROMPT},
+             {"role": "user", "content": user}]
         )
-    # กันถ้อยคำที่สื่อคำแนะนำทางการเงิน
+    except Exception:
+        txt = (
+            f"สรุปข้อมูลล่าสุด ({tf}) — ปิด {close}, ปริมาณ {volume}. "
+            "ระบบหลักช้า ใช้ข้อความย่อชั่วคราว. ข้อมูลนี้เพื่อการศึกษาเท่านั้น."
+        )
     banned = ("buy","sell","entry","exit","long","short","tp","sl")
-    if any(b in text.lower() for b in banned):
-        text = "ข้อมูลนี้เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำทางการเงิน."
-    return text
+    if any(b in txt.lower() for b in banned):
+        txt = "ข้อมูลนี้เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำทางการเงิน."
+    return txt
 
-def tts_alloy(text):
-    # ใช้เสียง alloy (OpenAI TTS) เป็นดีฟอลต์บน Render
+def tts_alloy(text: str):
+    """เรียก TTS และส่งกลับเป็น base64 (mp3)"""
     try:
         r = client.audio.speech.create(
-            model="gpt-4o-mini-tts",
-            voice="alloy",
+            model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
+            voice=os.getenv("VOICE", "alloy"),
             input=text,
         )
         audio_bytes = r.read()
-        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        return {"ok": True, "audio_b64": audio_b64, "text": text, "audio_mime": "audio/mpeg"}
+        return {
+            "ok": True,
+            "text": text,
+            "audio_b64": base64.b64encode(audio_bytes).decode("utf-8"),
+            "audio_mime": "audio/mpeg",
+        }
     except Exception as e:
+        # ถ้าเสียงล้ม เหลืออย่างน้อยเป็นข้อความ
         return {"ok": False, "text": text, "error": f"tts_failed: {e}"}
 
 @app.route("/coach_dual", methods=["POST"])
@@ -100,21 +101,18 @@ def coach_dual():
         ).hexdigest()[:16]
 
         text = data.get("text") or coach_text(symbol, tf, close, volume)
-        result = tts_alloy(text)
-        result["safety_id"] = safety_id
-        return jsonify(result), 200 if result.get("ok") else 500
-
+        tts = tts_alloy(text)
+        tts["safety_id"] = safety_id
+        # ถ้า TTS พัง ให้ส่งเฉพาะข้อความ (ok=false จะได้เห็น error ใน log)
+        return jsonify(tts), 200 if tts.get("ok") else 200
     except Exception as e:
         return jsonify({"ok": False, "error": f"handler_failed: {e}"}), 500
 
 @app.route("/healthz")
 def healthz():
     return jsonify({
-        "ok": True,
-        "model": "gpt-5",
-        "voice": "alloy",
-        "timeout": OPENAI_HTTP_TIMEOUT,
-        "retries": OPENAI_MAX_RETRIES
+        "ok": True, "model": "gpt-5", "voice": os.getenv("VOICE", "alloy"),
+        "retries": OPENAI_RETRIES, "timeout": OPENAI_TIMEOUT
     })
 
 if __name__ == "__main__":

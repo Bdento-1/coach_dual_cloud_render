@@ -1,173 +1,145 @@
-import os, json, base64, hashlib, time
-from typing import Dict, Any
+# ==========================================================
+#  Gatekeeper + Voice Coach Integration (Hybrid-Auto v2.3.1)
+#  Author: Pattarapon R. (คุณท่าน) — System GPT-5 Safe Mode
+# ==========================================================
+
 from flask import Flask, request, jsonify
-import requests
+import os, time, json, base64, hashlib, requests
+from openai import OpenAI
 
-# ==== ENV ====
-OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY", "")
-GOOGLE_TTS_KEY   = os.getenv("GOOGLE_TTS_KEY", "")              # <-- ใส่ใน Render
-WEBHOOK_TOKEN    = os.getenv("WEBHOOK_TOKEN", "kunthan-voice-01")
-DEFAULT_VOICE    = os.getenv("VOICE", "th-TH-Standard-B")       # Google TTS ชายไทยชัด
-DEFAULT_RATE     = float(os.getenv("VOICE_RATE", "0.92"))       # 1.0 ปกติ (0.9 ช้าลง)
-DEFAULT_PITCH    = float(os.getenv("VOICE_PITCH", "-2.0"))      # นุ่มลงเล็กน้อย
-
-SYSTEM_PROMPT = """คุณคือ Gatekeeper v2.3.1 Voice Coach (ภาษาไทยเท่านั้น)
-กติกาเคร่งครัด:
-- ห้ามให้คำแนะนำการเงินหรือสัญญาณซื้อขายทุกชนิด (ห้ามใช้คำว่า buy/sell/long/short/ซื้อ/ขาย/เปิดสถานะ/ปิดสถานะ)
-- วิเคราะห์เชิงโครงสร้างเท่านั้น: flip / trap / momentum / BOS / volume
-- ต้องระบุ: สถานะ Key Levels (W/D/S/Bonus), ตรวจ Flip Rule, ตรวจ Trap, คำเตือนความเสี่ยง
-- เขียนสั้น กระชับ ชัดเจน เป็นภาษาไทยล้วน
-- ปิดท้ายด้วย: 'สำหรับการศึกษาเท่านั้น'"""
-
+# -------------------------------------
+# ✅ INITIAL SETUP
+# -------------------------------------
 app = Flask(__name__)
 
-# ========== Utilities ==========
-def safety_id(payload: Dict[str, Any]) -> str:
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+# โหลดค่า Environment ปลอดภัยจาก Render หรือ Local
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_ORG = os.getenv("OPENAI_ORG")
+OPENAI_HTTP_TIMEOUT = int(os.getenv("OPENAI_HTTP_TIMEOUT", "70"))
+OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "3"))
 
-def want_slow(pace: str) -> float:
-    if pace == "slow":  return 0.90
-    if pace == "fast":  return 1.05
-    return DEFAULT_RATE
+client = OpenAI(api_key=OPENAI_API_KEY, organization=OPENAI_ORG)
 
-# ========== OpenAI (text + fallback TTS) ==========
-def gpt5_analyst(msg: Dict[str, Any]) -> str:
-    """
-    เรียกข้อความสรุปแบบปลอดภัยจาก OpenAI (ไทยล้วน ไม่มีคำแนะนำการเงิน)
-    """
-    # ใช้ HTTP REST ตรง เพื่อความง่าย (ไม่พึ่งไลบรารี)
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    user = (
-        f"สัญลักษณ์:{msg.get('symbol')} | TF:{msg.get('tf')}\n"
-        f"close:{msg.get('close')} volume:{msg.get('volume')}\n"
-        f"เขียนไทยล้วน สั้น กระชับ ตามกติกา."
+# -------------------------------------
+# ✅ SYSTEM PROMPT: ป้องกันการให้คำแนะนำการเงิน
+# -------------------------------------
+SYSTEM_PROMPT = (
+    "You are an analytical trading assistant. "
+    "Describe the market structure objectively using neutral tone. "
+    "Do not provide buy/sell/hold advice. "
+    "Respond in Thai. Add disclaimer: 'ข้อมูลนี้เพื่อการศึกษาเท่านั้น.'"
+)
+
+# -------------------------------------
+# ✅ GPT-5 SAFE REQUEST FUNCTION
+# -------------------------------------
+def ask_gpt(messages):
+    wait = 0.5
+    for i in range(OPENAI_MAX_RETRIES):
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-5",
+                messages=messages,
+                timeout=OPENAI_HTTP_TIMEOUT,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"⚠️ GPT error (try {i+1}): {e}")
+            if i == OPENAI_MAX_RETRIES - 1:
+                raise
+            time.sleep(wait)
+            wait *= 2
+
+# -------------------------------------
+# ✅ CORE ANALYSIS FUNCTION
+# -------------------------------------
+def coach_text(symbol, tf, close, volume):
+    user_prompt = (
+        f"วิเคราะห์หุ้น {symbol} บนกรอบเวลา {tf} "
+        f"ราคาปิด {close} ปริมาณ {volume}. "
+        "อธิบายโครงสร้างคลื่นและแรงซื้อขายอย่างเป็นกลาง"
     )
-    body = {
-        "model": "gpt-5",           # ใช้รุ่นล่าสุดในบัญชีของคุณ
-        "messages": [
+
+    try:
+        text = ask_gpt([
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user}
-        ],
-        # อย่าตั้ง temperature/ฯลฯ ถ้ารุ่นไม่รองรับ
-    }
-    r = requests.post(url, headers=headers, json=body, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    text = data["choices"][0]["message"]["content"].strip()
-    # เติมหมายเหตุความปลอดภัยเสมอ
-    if "สำหรับการศึกษาเท่านั้น" not in text:
-        text += "\n\nสำหรับการศึกษาเท่านั้น"
+            {"role": "user", "content": user_prompt}
+        ])
+    except Exception as e:
+        print(f"❌ GPT fallback: {e}")
+        text = (
+            f"ระบบวิเคราะห์ช้าชั่วคราว: {symbol} {tf} ราคาปิด {close}. "
+            "ข้อมูลนี้เพื่อการศึกษาเท่านั้น."
+        )
+
+    # ✅ กันคำต้องห้าม
+    banned = ["buy", "sell", "entry", "exit", "short", "long"]
+    if any(b in text.lower() for b in banned):
+        text = "ข้อมูลนี้เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำทางการเงิน."
     return text
 
-def tts_openai(text: str, voice_name: str = "alloy") -> bytes:
-    """
-    Fallback: OpenAI TTS (กรณี Google ใช้ไม่ได้)
-    """
-    url = "https://api.openai.com/v1/audio/speech"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": "gpt-4o-mini-tts",
-        "voice": voice_name,
-        "input": text
-    }
-    r = requests.post(url, headers=headers, json=body, timeout=60)
-    r.raise_for_status()
-    return r.content  # mp3 bytes
+# -------------------------------------
+# ✅ TEXT TO SPEECH (ALLOY)
+# -------------------------------------
+def tts_alloy(text):
+    try:
+        r = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=text,
+        )
+        audio_bytes = r.read()
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return {"ok": True, "audio_b64": audio_b64, "text": text}
+    except Exception as e:
+        print(f"❌ Voice error: {e}")
+        return {"ok": False, "text": text, "audio_b64": None}
 
-# ========== Google TTS (REST + API Key) ==========
-def tts_google_rest(text: str, voice_name: str, rate: float, pitch: float) -> bytes:
-    """
-    เรียก Google Cloud Text-to-Speech ผ่าน REST ด้วย API Key เดียว (ไม่ต้อง Service Account)
-    """
-    assert GOOGLE_TTS_KEY, "GOOGLE_TTS_KEY not set"
-    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_KEY}"
-    body = {
-        "input": {"text": text},
-        "voice": {"languageCode": "th-TH", "name": voice_name},
-        "audioConfig": {
-            "audioEncoding": "MP3",
-            "speakingRate": rate,  # 1.0 ปกติ; 0.9 ช้าลง
-            "pitch": pitch         # -2.0 นุ่มลง
-        },
-    }
-    r = requests.post(url, json=body, timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    if "audioContent" not in data:
-        raise RuntimeError(f"TTS error: {data}")
-    return base64.b64decode(data["audioContent"])
-
-# ========== Routes ==========
-@app.get("/healthz")
-def healthz():
-    return jsonify({"ok": True, "model": "gpt-5", "voice": DEFAULT_VOICE})
-
-@app.post("/coach_dual")
+# -------------------------------------
+# ✅ MAIN ENDPOINT
+# -------------------------------------
+@app.route("/coach_dual", methods=["POST"])
 def coach_dual():
-    # --- ตรวจ token ---
-    token_q = request.args.get("token") or request.headers.get("X-Webhook-Token", "")
-    if token_q != WEBHOOK_TOKEN:
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
-
-    # --- รับข้อมูล ---
     try:
-        payload = request.get_json(force=True) or {}
-    except Exception:
-        return jsonify({"ok": False, "error": "invalid_json"}), 400
+        token = request.args.get("token", "")
+        if token != os.getenv("WEBHOOK_TOKEN", "kunthan-voice-01"):
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
 
-    # --- ทำข้อความวิเคราะห์แบบปลอดภัย ---
-    try:
-        text = gpt5_analyst(payload)
+        data = request.get_json(force=True)
+        symbol = data.get("symbol", "?")
+        tf = data.get("tf", "?")
+        close = data.get("close", "?")
+        volume = data.get("volume", "?")
+
+        safety_id = hashlib.sha256(
+            f"{symbol}{tf}{close}{volume}".encode()
+        ).hexdigest()[:16]
+
+        text = coach_text(symbol, tf, close, volume)
+        result = tts_alloy(text)
+        result["safety_id"] = safety_id
+        return jsonify(result)
+
     except Exception as e:
-        return jsonify({"ok": False, "error": "openai_chat_failed", "detail": str(e)}), 400
+        return jsonify({"ok": False, "error": str(e)}), 500
 
-    # --- เลือกเสียง/ความเร็ว ---
-    pace = (request.args.get("pace") or "").lower().strip()
-    rate = want_slow(pace)
-    voice_param = request.args.get("voice") or DEFAULT_VOICE
-
-    # --- สร้างเสียง (Google → fallback OpenAI) ---
-    audio_bytes = b""
-    audio_mime  = "audio/mpeg"
-    used_voice  = voice_param
-    engine      = "google-tts"
-
-    try:
-        if GOOGLE_TTS_KEY:
-            audio_bytes = tts_google_rest(text, voice_param, rate, DEFAULT_PITCH)
-        else:
-            raise RuntimeError("GOOGLE_TTS_KEY missing")
-    except Exception as e:
-        # Fallback ไป OpenAI TTS (อังกฤษสำเนียงอ่านไทยได้ระดับหนึ่ง)
-        try:
-            audio_bytes = tts_openai(text, voice_name="fable")
-            used_voice  = "fable"
-            engine      = "openai-tts"
-        except Exception as e2:
-            return jsonify({"ok": False, "error": "tts_failed", "detail": f"{e}; {e2}"}), 400
-
-    # --- ตอบกลับ ---
-    resp = {
+# -------------------------------------
+# ✅ HEALTH CHECK
+# -------------------------------------
+@app.route("/healthz")
+def healthz():
+    return jsonify({
         "ok": True,
-        "engine": engine,
-        "voice": used_voice,
-        "audio_mime": audio_mime,
-        "text": text,
-        "safety_id": safety_id({
-            "ts": int(time.time()), "symbol": payload.get("symbol"), "tf": payload.get("tf")
-        }),
-        "audio_b64": base64.b64encode(audio_bytes).decode("utf-8"),
-    }
-    return jsonify(resp)
+        "model": "gpt-5",
+        "voice": "alloy",
+        "timeout": OPENAI_HTTP_TIMEOUT,
+        "retries": OPENAI_MAX_RETRIES
+    })
 
+# -------------------------------------
+# ✅ ENTRY POINT
+# -------------------------------------
 if __name__ == "__main__":
-    # สำหรับรันโลคัล (Render จะใช้ gunicorn ตาม Start Command ด้านล่าง)
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5053")), debug=False)
+    port = int(os.getenv("PORT", 10000))
+    print(f"🚀 Voice Coach Server running on port {port}")
+    app.run(host="0.0.0.0", port=port)

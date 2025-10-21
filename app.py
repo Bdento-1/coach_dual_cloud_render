@@ -75,7 +75,7 @@ def coach_dual():
     try:
         chat = client.chat.completions.create(
             model=MODEL_TEXT,
-            temperature=0.2,
+            temperature=1,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT + f"\n[safety_identifier:{sid}]"},
                 {"role": "user", "content": build_user_prompt(alert)}

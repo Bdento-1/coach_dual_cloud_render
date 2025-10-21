@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import os, time, json, base64, hashlib
-from openai import OpenAI
+from openai import openai
 
 app = Flask(__name__)
 

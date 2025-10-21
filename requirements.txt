@@ -1,0 +1,4 @@
+flask
+pydantic>=2
+openai>=1.52.0
+gunicorn

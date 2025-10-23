@@ -129,6 +129,25 @@ def healthz():
         "retries": OPENAI_RETRIES,
         "timeout": OPENAI_TIMEOUT
     })
+@app.route("/speak", methods=["POST"])
+def speak():
+    """TTS endpoint ทดสอบเสียง nova"""
+    try:
+        data = request.get_json(force=True) or {}
+        text = data.get("text", "ทดสอบเสียง nova ผ่านโดเมนถาวร")
+        voice = data.get("voice", VOICE)
+
+        r = client.audio.speech.create(
+            model=TTS_MODEL,
+            voice=voice,
+            input=text,
+        )
+        audio_bytes = r.read()
+
+        # ส่งกลับเป็นเสียง mp3 โดยตรง
+        return Response(audio_bytes, mimetype="audio/mpeg")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ===== MAIN =====
 if __name__ == "__main__":

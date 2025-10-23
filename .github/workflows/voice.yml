@@ -1,0 +1,17 @@
+# 📄 .github/workflows/voice.yml
+name: Voice TH
+on:
+  repository_dispatch:
+    types: [voice_speak_th]
+
+jobs:
+  speak:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print incoming message
+        run: |
+          echo "🔊 Incoming voice event:"
+          echo "Asset: ${{ github.event.client_payload.asset }}"
+          echo "Event: ${{ github.event.client_payload.event }}"
+          echo "Level: ${{ github.event.client_payload.level }}"
+          echo "Note:  ${{ github.event.client_payload.note }}"

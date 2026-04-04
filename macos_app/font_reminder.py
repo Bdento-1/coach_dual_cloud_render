@@ -69,40 +69,37 @@ def get_input_source() -> str:
         return "en"
 
 def is_garbage(chars: list) -> bool:
-    """
-    คืน True ถ้าตัวอักษรล่าสุดดูเหมือนพิมพ์ผิดภาษา
-
-    Thai garbage (พิมพ์ EN ขณะ Thai mode เปิด):
-      Rule A: ตัวแรกเป็น tone mark (้่ etc.) → invalid เสมอ
-      Rule B: tone mark ติดกัน 2 ตัว
-      Rule C: decode Thai→EN key แล้วได้ EN word จริงๆ
-               (มี vowel + ไม่มี special key เช่น ;',./)
-               เช่น "world"→ไนพสก → decode → "world" → garbage!
-
-    EN garbage (พิมพ์ TH Kedmanee ขณะ EN mode เปิด):
-      Rule D: Latin only + ไม่มี vowel เลย (เช่น lsyfd)
-    """
     th = [c for c in chars if is_thai(c)]
     en = [c for c in chars if is_latin(c)]
 
     # ── Thai garbage ──────────────────────────────────────────
     if len(th) >= MIN_CHARS and len(th) > len(en):
-        # Rule A
+        # Rule A: ขึ้นต้นด้วย tone mark
         if th[0] in THAI_TONE_MARKS:
             return True
-        # Rule B
+        # Rule B: tone mark ติดกัน 2 ตัว
         for i in range(len(th) - 1):
             if th[i] in THAI_TONE_MARKS and th[i+1] in THAI_TONE_MARKS:
                 return True
-        # Rule C: decode กลับเป็น EN แล้วดูว่าเป็น English จริงไหม
+        # Rule C: decode → ถ้าได้ EN word จริงๆ = garbage
         decoded = ''.join(TH_TO_EN_KEY.get(c, '?') for c in th)
         if '?' not in decoded:
-            letters = [c for c in decoded if c.isalpha()]
+            letters  = [c for c in decoded if c.isalpha()]
             specials = [c for c in decoded if c in TH_SPECIAL_KEYS]
             if len(letters) >= MIN_CHARS and len(specials) == 0:
                 vowels = sum(1 for c in letters if c in EN_VOWELS)
                 if vowels / len(letters) >= 0.15:
-                    return True   # decoded text looks like English!
+                    return True
+        # Rule D: ใช้ PyThaiNLP ตรวจว่าเป็นคำไทยจริงไหม
+        try:
+            from pythainlp.tokenize import word_tokenize
+            text = ''.join(th)
+            words = word_tokenize(text, keep_whitespace=False)
+            known = [w for w in words if len(w) > 1]
+            if len(known) == 0:
+                return True   # ไม่มีคำไทยจริงเลย = garbage
+        except ImportError:
+            pass   # ไม่มี pythainlp → ข้ามได้
 
     # ── EN garbage ────────────────────────────────────────────
     if len(en) >= MIN_CHARS and len(en) > len(th):

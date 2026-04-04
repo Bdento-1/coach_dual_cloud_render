@@ -18,9 +18,63 @@ import threading
 import time
 import os
 import sys
+import ctypes
+import ctypes.util
 
 from AppKit import NSEvent, NSKeyDownMask
 from Foundation import NSDistributedNotificationCenter, NSObject, NSRunLoop, NSDate
+
+# ── Carbon TIS: อ่าน input source โดยตรง ไม่ spawn process (~1ms) ──────
+def _setup_tis():
+    try:
+        cf  = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreFoundation"))
+        car = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Carbon"))
+
+        car.TISCopyCurrentKeyboardInputSource.restype  = ctypes.c_void_p
+        car.TISCopyCurrentKeyboardInputSource.argtypes = []
+        car.TISGetInputSourceProperty.restype  = ctypes.c_void_p
+        car.TISGetInputSourceProperty.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        cf.CFStringGetCString.restype  = ctypes.c_bool
+        cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+                                          ctypes.c_long, ctypes.c_uint32]
+        cf.CFRelease.restype  = None
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+
+        prop_id = ctypes.c_void_p.in_dll(car, "kTISPropertyInputSourceID")
+        return cf, car, prop_id
+    except Exception as e:
+        print(f"[TIS setup] fallback to defaults ({e})")
+        return None, None, None
+
+_CF, _CAR, _TIS_PROP_ID = _setup_tis()
+
+def get_input_source() -> str:
+    """อ่าน input source ปัจจุบัน — ใช้ TIS API โดยตรงถ้าทำได้ ไม่งั้น fallback"""
+    if _CAR is not None:
+        try:
+            src = _CAR.TISCopyCurrentKeyboardInputSource()
+            if src:
+                ref = _CAR.TISGetInputSourceProperty(src, _TIS_PROP_ID)
+                result = "en"
+                if ref:
+                    buf = ctypes.create_string_buffer(256)
+                    _CF.CFStringGetCString(ref, buf, 256, 0x08000100)  # UTF-8
+                    name = buf.value.decode("utf-8", errors="ignore")
+                    result = "th" if "Thai" in name else "en"
+                _CF.CFRelease(src)
+                return result
+        except Exception:
+            pass
+    # fallback
+    try:
+        r = subprocess.run(
+            ["defaults", "read", "com.apple.HIToolbox",
+             "AppleCurrentKeyboardLayoutInputSourceID"],
+            capture_output=True, text=True, timeout=1
+        )
+        return "th" if "Thai" in r.stdout else "en"
+    except Exception:
+        return "en"
 
 # ── Thai character sets ──────────────────────────────────────
 THAI_TONE_MARKS = set('่้๊๋็ํฺ')
@@ -57,17 +111,6 @@ def play_sound(path: str):
     subprocess.Popen(["afplay", path],
                      stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
-
-def get_input_source() -> str:
-    try:
-        r = subprocess.run(
-            ["defaults", "read", "com.apple.HIToolbox",
-             "AppleCurrentKeyboardLayoutInputSourceID"],
-            capture_output=True, text=True, timeout=1
-        )
-        return "th" if "Thai" in r.stdout else "en"
-    except Exception:
-        return "en"
 
 def is_garbage(chars: list) -> bool:
     th = [c for c in chars if is_thai(c)]

@@ -22,18 +22,21 @@ import sys
 from AppKit import NSEvent, NSKeyDownMask
 
 # ── Thai character sets ──────────────────────────────────────
-THAI_VOWELS = set('ะาิีึืุูเแโใไๆำ็ัํ่้๊๋')
-EN_VOWELS   = set('aeiouAEIOU')
+# Tone marks + diacritics ที่ต้องตามหลัง consonant เสมอในภาษาไทยจริง
+THAI_TONE_MARKS = set('่้๊๋็ํฺ')
+# Consonants ภาษาไทย
+THAI_CONSONANTS = set('กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ')
+EN_VOWELS       = set('aeiouAEIOU')
 
 # ── Tuning ───────────────────────────────────────────────────
-BUFFER_SIZE       = 7     # ตรวจสอบจาก 7 ตัวอักษรล่าสุด
+BUFFER_SIZE       = 6     # ตรวจสอบจาก 6 ตัวอักษรล่าสุด
 MIN_CHARS         = 4     # ต้องมีอย่างน้อย N ตัวก่อนตรวจ
 GARBAGE_COOLDOWN  = 3.0   # วินาที — ไม่เตือนซ้ำถี่เกินนี้
 REMINDER_OPTIONS  = [1, 2, 3, 5, 10, 15, 30]
 
-SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"   # พิมพ์ผิดภาษา
-SOUND_SWITCH  = "/System/Library/Sounds/Tink.aiff"     # สลับภาษา
-SOUND_IDLE    = "/System/Library/Sounds/Glass.aiff"    # อยู่นานเกิน
+SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"
+SOUND_SWITCH  = "/System/Library/Sounds/Tink.aiff"
+SOUND_IDLE    = "/System/Library/Sounds/Glass.aiff"
 
 
 # ── helpers ──────────────────────────────────────────────────
@@ -60,7 +63,17 @@ def get_input_source() -> str:
         return "en"
 
 def is_garbage(chars: list) -> bool:
-    """คืน True ถ้าตัวอักษรล่าสุดดูเหมือนพิมพ์ผิดภาษา"""
+    """
+    คืน True ถ้าตัวอักษรล่าสุดดูเหมือนพิมพ์ผิดภาษา
+
+    วิธีตรวจ Thai garbage (พิมพ์ EN ขณะ Thai mode):
+      - ตัวแรกของ sequence เป็น tone mark/diacritic (เช่น ้ จาก 'h')
+        → ภาษาไทยจริงไม่มีทางเริ่มด้วย tone mark
+      - หรือมี tone mark ติดกัน 2 ตัว
+
+    วิธีตรวจ EN garbage (พิมพ์ TH layout ขณะ EN mode):
+      - Latin letters ล้วนๆ แต่ไม่มี vowel เลย (เช่น lsyfd)
+    """
     th = [c for c in chars if is_thai(c)]
     en = [c for c in chars if is_latin(c)]
     total = len(th) + len(en)
@@ -68,17 +81,26 @@ def is_garbage(chars: list) -> bool:
     if total < MIN_CHARS:
         return False
 
-    # กรณี Thai chars มากกว่า แต่ไม่มี vowel เลย
-    # = พิมพ์ภาษาอังกฤษขณะ Thai mode เปิดอยู่
-    if len(th) > len(en):
-        vowel_ratio = sum(1 for c in th if c in THAI_VOWELS) / len(th)
-        return vowel_ratio < 0.10
+    # ── Thai garbage ──
+    if len(th) >= MIN_CHARS and len(th) > len(en):
+        # Rule 1: ขึ้นต้นด้วย tone mark → garbage แน่นอน
+        # เช่น "hello" ใน Thai mode → ้ำสสน (้ ขึ้นต้น = invalid)
+        if th[0] in THAI_TONE_MARKS:
+            return True
+        # Rule 2: tone mark ติดกัน 2 ตัว
+        for i in range(len(th) - 1):
+            if th[i] in THAI_TONE_MARKS and th[i+1] in THAI_TONE_MARKS:
+                return True
+        # Rule 3: ไม่มี consonant เลย (ล้วนแต่ mark/vowel)
+        consonant_count = sum(1 for c in th if c in THAI_CONSONANTS)
+        if consonant_count == 0:
+            return True
 
-    # กรณี Latin chars มากกว่า แต่ไม่มี vowel เลย
-    # = พิมพ์ตำแหน่ง Thai Kedmanee ขณะ English mode เปิดอยู่
-    if len(en) > len(th):
-        vowel_ratio = sum(1 for c in en if c in EN_VOWELS) / len(en)
-        return vowel_ratio < 0.08
+    # ── EN garbage (Thai Kedmanee layout typed in EN mode) ──
+    if len(en) >= MIN_CHARS and len(en) > len(th):
+        vowel_count = sum(1 for c in en if c in EN_VOWELS)
+        if vowel_count / len(en) < 0.08:
+            return True
 
     return False
 

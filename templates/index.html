@@ -1,21 +1,42 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="th" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Font Switch Reminder · EN ⇄ TH</title>
   <style>
-    :root {
+    /* ── DARK theme (default) ── */
+    [data-theme="dark"] {
       --bg: #0f0f14;
       --card: #1a1a24;
       --border: #2e2e42;
+      --text: #e8e8f0;
+      --dim: #7070a0;
+      --kbd-bg: #2a2a3c;
+      --kbd-border: #44445a;
+      --kbd-text: #c8c8e8;
+      --fix-out-bg: #131a13;
+      --fix-out-border: #2e3a2e;
+    }
+    /* ── LIGHT theme ── */
+    [data-theme="light"] {
+      --bg: #f4f4f8;
+      --card: #ffffff;
+      --border: #d0d0e0;
+      --text: #1a1a2e;
+      --dim: #8080aa;
+      --kbd-bg: #e8e8f4;
+      --kbd-border: #b0b0cc;
+      --kbd-text: #2a2a4a;
+      --fix-out-bg: #f0fff4;
+      --fix-out-border: #a0d8b0;
+    }
+    :root {
       --en-color: #4f9eff;
       --th-color: #ff6b6b;
       --ok-color: #4caf86;
       --warn-color: #ffb347;
       --fix-color: #a78bfa;
-      --text: #e8e8f0;
-      --dim: #7070a0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -119,8 +140,8 @@
     }
     textarea.fix-textarea:focus { border-color: var(--fix-color); }
     textarea.fix-output {
-      color: var(--ok-color); border-color: #2e3a2e;
-      background: #131a13; cursor: default;
+      color: var(--ok-color); border-color: var(--fix-out-border);
+      background: var(--fix-out-bg); cursor: default;
     }
 
     .fix-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -156,13 +177,55 @@
     .shortcut-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .87rem; }
     .shortcut-row:last-child { margin-bottom: 0; }
     kbd {
-      background: #2a2a3c; border: 1px solid #44445a; border-radius: 6px;
-      padding: 2px 8px; font-size: .78rem; font-family: monospace; color: #c8c8e8; white-space: nowrap;
+      background: var(--kbd-bg); border: 1px solid var(--kbd-border); border-radius: 6px;
+      padding: 2px 8px; font-size: .78rem; font-family: monospace; color: var(--kbd-text); white-space: nowrap;
     }
     .arrow { color: var(--dim); font-size: .78rem; }
 
     /* ── Flash overlay ── */
     #flash-overlay { position: fixed; inset: 0; pointer-events: none; background: var(--warn-color); opacity: 0; transition: opacity .08s; z-index: 999; }
+
+    /* ── Top toolbar ── */
+    .toolbar {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; max-width: 560px; margin-bottom: 18px;
+      justify-content: flex-end;
+    }
+    .icon-btn {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 7px 14px;
+      font-size: .82rem; font-weight: 600; cursor: pointer; color: var(--text);
+      transition: opacity .15s, transform .1s;
+    }
+    .icon-btn:active { transform: scale(.95); }
+    .icon-btn.active { border-color: var(--ok-color); color: var(--ok-color); }
+
+    /* ── Timer bar ── */
+    #timer-section {
+      width: 100%; max-width: 560px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px 18px; margin-bottom: 16px;
+    }
+    .timer-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .timer-label { font-size: .8rem; color: var(--dim); flex-shrink: 0; }
+    #timer-display {
+      font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums;
+      min-width: 64px; color: var(--ok-color);
+    }
+    #timer-display.warning { color: var(--warn-color); animation: pulse .6s ease-in-out infinite alternate; }
+    #timer-limit-input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 4px 10px; font-size: .85rem; width: 70px;
+      outline: none;
+    }
+    #timer-limit-input:focus { border-color: var(--fix-color); }
+    .timer-unit { font-size: .78rem; color: var(--dim); }
+    #timer-progress-wrap {
+      width: 100%; height: 5px; background: var(--border);
+      border-radius: 99px; margin-top: 10px; overflow: hidden;
+    }
+    #timer-progress { height: 100%; width: 0%; background: var(--ok-color); transition: width .5s linear, background .3s; border-radius: 99px; }
+    #timer-progress.warning { background: var(--warn-color); }
   </style>
 </head>
 <body>
@@ -170,6 +233,24 @@
 <div id="flash-overlay"></div>
 
 <h1>⌨️ Font Switch Reminder</h1>
+
+<!-- ── TOOLBAR ── -->
+<div class="toolbar">
+  <button class="icon-btn" id="btn-theme">☀️ Light</button>
+  <button class="icon-btn active" id="btn-notify">🔔 Notify ON</button>
+</div>
+
+<!-- ── TIMER ── -->
+<div id="timer-section">
+  <div class="timer-row">
+    <span class="timer-label">ไม่ได้สลับภาษานาน:</span>
+    <span id="timer-display">0:00</span>
+    <span class="timer-label" style="margin-left:auto">เตือนเมื่อครบ</span>
+    <input type="number" id="timer-limit-input" value="5" min="1" max="60" />
+    <span class="timer-unit">นาที</span>
+  </div>
+  <div id="timer-progress-wrap"><div id="timer-progress"></div></div>
+</div>
 
 <!-- ── LIVE MODE ── -->
 <div id="mode-display" class="lang-en">
@@ -502,6 +583,182 @@ fixClearBtn.addEventListener('click', ()=>{
 });
 
 updateDirectionUI();
+
+// ════════════════════════════════════════════
+//  DARK / LIGHT MODE
+// ════════════════════════════════════════════
+const btnTheme = document.getElementById('btn-theme');
+let isDark = true;
+
+btnTheme.addEventListener('click', () => {
+  isDark = !isDark;
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  btnTheme.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+});
+
+// ════════════════════════════════════════════
+//  WEB NOTIFICATIONS (macOS native popup)
+// ════════════════════════════════════════════
+const btnNotify = document.getElementById('btn-notify');
+let notifyOn = false; // start off until user grants
+
+async function requestNotifyPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+btnNotify.addEventListener('click', async () => {
+  if (!notifyOn) {
+    const granted = await requestNotifyPermission();
+    if (granted) {
+      notifyOn = true;
+      btnNotify.textContent = '🔔 Notify ON';
+      btnNotify.classList.add('active');
+      new Notification('Font Switch Reminder', {
+        body: 'การแจ้งเตือนเปิดใช้งานแล้ว ✓',
+        icon: ''
+      });
+    } else {
+      btnNotify.textContent = '🔕 Notify (ถูกบล็อก)';
+      btnNotify.classList.remove('active');
+    }
+  } else {
+    notifyOn = false;
+    btnNotify.textContent = '🔕 Notify OFF';
+    btnNotify.classList.remove('active');
+  }
+});
+
+// Auto-request on load quietly (won't prompt if already decided)
+if (Notification.permission === 'granted') {
+  notifyOn = true;
+}
+
+function sendNativeNotify(title, body) {
+  if (!notifyOn || Notification.permission !== 'granted') return;
+  new Notification(title, { body, silent: false });
+}
+
+// Patch triggerAlert to also send native notification
+const _origTriggerAlert = triggerAlert;
+// Override with wrapper
+window._realTrigger = function(msg) {
+  const now = Date.now();
+  if (now - lastAlertTime < ALERT_COOLDOWN) return;
+  lastAlertTime = now;
+  alertCount++;
+  alertCountEl.textContent = alertCount;
+  alertBanner.textContent  = msg;
+  alertBanner.classList.add('visible');
+  textarea.classList.add('mismatch');
+  beep(520,0.2,'square');
+  setTimeout(()=>beep(440,0.18,'square'), 210);
+  flashScreen();
+  sendNativeNotify('⌨️ Font Switch Reminder', msg.replace(/^⚠️\s*/, ''));
+};
+// Replace the function reference used in analyze()
+// (re-bind analyze to use the patched version)
+textarea.removeEventListener('input', analyze);
+function analyzePatched() {
+  const text = textarea.value;
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total   = thChars + enChars;
+  charHint.textContent = text.length + ' chars';
+  enCountEl.textContent = enChars;
+  thCountEl.textContent = thChars;
+  if (total === 0) { clearAlert(); return; }
+  const thRatio = thChars / total;
+  const dominant = thRatio >= 0.5 ? 'th' : 'en';
+  setMode(dominant);
+  const minority = dominant === 'th' ? (enChars/total) : thRatio;
+  if (total >= 5 && minority > MIXED_THRESHOLD) {
+    window._realTrigger('⚠️ ตรวจพบภาษาปนกัน! ลืมกด Caps Lock หรือยัง?'); return;
+  }
+  if (dominant === 'th' && isGarbageThai(text)) {
+    window._realTrigger('⚠️ ข้อความดูมั่วไม่มีความหมาย! ลืมเปลี่ยนเป็น EN ก่อนพิมพ์?'); return;
+  }
+  if (dominant === 'en' && isGarbageEN(text)) {
+    window._realTrigger('⚠️ ดูเหมือนพิมพ์ด้วย TH layout แต่อยู่ใน EN mode!'); return;
+  }
+  clearAlert();
+}
+textarea.addEventListener('input', analyzePatched);
+
+// ════════════════════════════════════════════
+//  IDLE TIMER  (no language switch for X min)
+// ════════════════════════════════════════════
+const timerDisplay    = document.getElementById('timer-display');
+const timerProgress   = document.getElementById('timer-progress');
+const timerLimitInput = document.getElementById('timer-limit-input');
+
+let timerStart       = Date.now();
+let lastSwitchTime   = Date.now();
+let timerFired       = false;
+
+// Reset timer whenever language actually switches
+const _origSetMode = setMode;
+function setModePatched(lang) {
+  if (lang !== lastDetected) {
+    lastSwitchTime = Date.now();
+    timerStart     = Date.now();
+    timerFired     = false;
+    timerProgress.classList.remove('warning');
+    timerDisplay.classList.remove('warning');
+  }
+  _origSetMode(lang);
+}
+// Override setMode (simple reassign since it's a function declaration)
+// We patch it inline by redefining lastDetected tracking:
+let _lastLang = 'en';
+textarea.addEventListener('input', () => {
+  // track language switch for timer reset
+  const text = textarea.value;
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total = thChars + enChars;
+  if (total === 0) return;
+  const dominant = thChars/total >= 0.5 ? 'th' : 'en';
+  if (dominant !== _lastLang) {
+    _lastLang = dominant;
+    lastSwitchTime = Date.now();
+    timerStart = Date.now();
+    timerFired = false;
+    timerProgress.classList.remove('warning');
+    timerDisplay.classList.remove('warning');
+  }
+});
+
+// Tick every second
+setInterval(() => {
+  const limitMs  = (parseFloat(timerLimitInput.value) || 5) * 60 * 1000;
+  const elapsed  = Date.now() - lastSwitchTime;
+  const ratio    = Math.min(elapsed / limitMs, 1);
+  const secs     = Math.floor(elapsed / 1000);
+  const mm       = Math.floor(secs / 60);
+  const ss       = String(secs % 60).padStart(2, '0');
+
+  timerDisplay.textContent = `${mm}:${ss}`;
+  timerProgress.style.width = (ratio * 100) + '%';
+
+  const isWarning = ratio >= 0.75;
+  timerProgress.classList.toggle('warning', isWarning);
+  timerDisplay.classList.toggle('warning', isWarning);
+
+  if (ratio >= 1 && !timerFired) {
+    timerFired = true;
+    beep(440, 0.3, 'triangle');
+    setTimeout(() => beep(440, 0.3, 'triangle'), 400);
+    sendNativeNotify('⏰ ยังไม่ได้เปลี่ยนภาษา!',
+      `ไม่ได้สลับภาษานาน ${mm} นาทีแล้ว — กด Caps Lock เช็คด้วยนะ`);
+    alertBanner.textContent = `⏰ ไม่ได้สลับภาษานาน ${mm} นาที! กด Caps Lock เช็คด้วย`;
+    alertBanner.classList.add('visible');
+    flashScreen();
+  }
+}, 1000);
 </script>
 </body>
 </html>

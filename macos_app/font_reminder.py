@@ -22,17 +22,23 @@ import sys
 from AppKit import NSEvent, NSKeyDownMask
 
 # ── Thai character sets ──────────────────────────────────────
-# Tone marks + diacritics ที่ต้องตามหลัง consonant เสมอในภาษาไทยจริง
 THAI_TONE_MARKS = set('่้๊๋็ํฺ')
-# Consonants ภาษาไทย
 THAI_CONSONANTS = set('กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ')
 EN_VOWELS       = set('aeiouAEIOU')
 
-# ── Tuning ───────────────────────────────────────────────────
-BUFFER_SIZE       = 6     # ตรวจสอบจาก 6 ตัวอักษรล่าสุด
-MIN_CHARS         = 4     # ต้องมีอย่างน้อย N ตัวก่อนตรวจ
-GARBAGE_COOLDOWN  = 0.8   # วินาที — cooldown สั้นลง
-REMINDER_OPTIONS  = [1, 2, 3, 5, 10, 15, 30]
+# Kedmanee: Thai char → EN key (lowercase)
+TH_TO_EN_KEY = {
+    'ๆ':'q','ไ':'w','ำ':'e','พ':'r','ะ':'t','ั':'y','ี':'u','ร':'i','น':'o','ย':'p',
+    'ฟ':'a','ห':'s','ก':'d','ด':'f','เ':'g','้':'h','่':'j','า':'k','ส':'l','ว':';','ง':"'",
+    'ผ':'z','ป':'x','แ':'c','อ':'v','ิ':'b','ื':'n','ท':'m','ม':',','ใ':'.','ฝ':'/'
+}
+# Keys ที่ใช้ใน Thai Kedmanee แต่ไม่ปรากฏใน English word ปกติ
+TH_SPECIAL_KEYS = set(";',./-")
+
+# ── Tuning ──────────────────────────────────────────────────
+MIN_CHARS        = 4
+GARBAGE_COOLDOWN = 0.8
+REMINDER_OPTIONS = [1, 2, 3, 5, 10, 15, 30]
 
 SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"
 SOUND_SWITCH  = "/System/Library/Sounds/Tink.aiff"
@@ -66,40 +72,42 @@ def is_garbage(chars: list) -> bool:
     """
     คืน True ถ้าตัวอักษรล่าสุดดูเหมือนพิมพ์ผิดภาษา
 
-    วิธีตรวจ Thai garbage (พิมพ์ EN ขณะ Thai mode):
-      - ตัวแรกของ sequence เป็น tone mark/diacritic (เช่น ้ จาก 'h')
-        → ภาษาไทยจริงไม่มีทางเริ่มด้วย tone mark
-      - หรือมี tone mark ติดกัน 2 ตัว
+    Thai garbage (พิมพ์ EN ขณะ Thai mode เปิด):
+      Rule A: ตัวแรกเป็น tone mark (้่ etc.) → invalid เสมอ
+      Rule B: tone mark ติดกัน 2 ตัว
+      Rule C: decode Thai→EN key แล้วได้ EN word จริงๆ
+               (มี vowel + ไม่มี special key เช่น ;',./)
+               เช่น "world"→ไนพสก → decode → "world" → garbage!
 
-    วิธีตรวจ EN garbage (พิมพ์ TH layout ขณะ EN mode):
-      - Latin letters ล้วนๆ แต่ไม่มี vowel เลย (เช่น lsyfd)
+    EN garbage (พิมพ์ TH Kedmanee ขณะ EN mode เปิด):
+      Rule D: Latin only + ไม่มี vowel เลย (เช่น lsyfd)
     """
     th = [c for c in chars if is_thai(c)]
     en = [c for c in chars if is_latin(c)]
-    total = len(th) + len(en)
 
-    if total < MIN_CHARS:
-        return False
-
-    # ── Thai garbage ──
+    # ── Thai garbage ──────────────────────────────────────────
     if len(th) >= MIN_CHARS and len(th) > len(en):
-        # Rule 1: ขึ้นต้นด้วย tone mark → garbage แน่นอน
-        # เช่น "hello" ใน Thai mode → ้ำสสน (้ ขึ้นต้น = invalid)
+        # Rule A
         if th[0] in THAI_TONE_MARKS:
             return True
-        # Rule 2: tone mark ติดกัน 2 ตัว
+        # Rule B
         for i in range(len(th) - 1):
             if th[i] in THAI_TONE_MARKS and th[i+1] in THAI_TONE_MARKS:
                 return True
-        # Rule 3: ไม่มี consonant เลย (ล้วนแต่ mark/vowel)
-        consonant_count = sum(1 for c in th if c in THAI_CONSONANTS)
-        if consonant_count == 0:
-            return True
+        # Rule C: decode กลับเป็น EN แล้วดูว่าเป็น English จริงไหม
+        decoded = ''.join(TH_TO_EN_KEY.get(c, '?') for c in th)
+        if '?' not in decoded:
+            letters = [c for c in decoded if c.isalpha()]
+            specials = [c for c in decoded if c in TH_SPECIAL_KEYS]
+            if len(letters) >= MIN_CHARS and len(specials) == 0:
+                vowels = sum(1 for c in letters if c in EN_VOWELS)
+                if vowels / len(letters) >= 0.15:
+                    return True   # decoded text looks like English!
 
-    # ── EN garbage (Thai Kedmanee layout typed in EN mode) ──
+    # ── EN garbage ────────────────────────────────────────────
     if len(en) >= MIN_CHARS and len(en) > len(th):
-        vowel_count = sum(1 for c in en if c in EN_VOWELS)
-        if vowel_count / len(en) < 0.08:
+        vowels = sum(1 for c in en if c in EN_VOWELS)
+        if vowels / len(en) < 0.08:
             return True
 
     return False

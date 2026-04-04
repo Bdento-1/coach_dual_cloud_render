@@ -256,7 +256,9 @@ class FontSwitchApp(rumps.App):
             if lang != self.current_lang:
                 self.current_lang     = lang
                 self.last_switch_time = time.time()
-                self.recent_chars.clear()  # reset buffer เมื่อสลับภาษา
+                self.recent_chars.clear()
+                # Grace period: ไม่ alert 0.6 วิ หลังสลับ เพื่อให้ buffer สะอาด
+                self.last_alert_time  = time.time() + 0.6
                 self._update_icon()
                 self._update_lang_item()
 
@@ -279,7 +281,7 @@ class FontSwitchApp(rumps.App):
                     sound=False,
                 )
 
-            time.sleep(0.8)
+            time.sleep(0.15)  # ตรวจเร็วขึ้น 0.8s → 0.15s
 
     # ── menu callbacks ────────────────────────────────────────
     def toggle_monitor(self, sender):

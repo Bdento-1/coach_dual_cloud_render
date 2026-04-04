@@ -184,18 +184,25 @@ class FontSwitchApp(rumps.App):
             return
 
         for c in chars:
-            if c.isprintable() and not c.isspace() and ord(c) > 31:
-                self.recent_chars.append(c)
-                if len(self.recent_chars) > BUFFER_SIZE:
-                    self.recent_chars.pop(0)
-
-        # ตรวจ garbage
-        if is_garbage(self.recent_chars):
-            now = time.time()
-            if now - self.last_alert_time >= GARBAGE_COOLDOWN:
-                self.last_alert_time = now
+            # space / enter / punctuation → จบคำ → ตรวจแล้ว reset
+            if c in (' ', '\r', '\n', '\t', '.', ',', '!', '?', ':', ';'):
+                if len(self.recent_chars) >= MIN_CHARS:
+                    if is_garbage(self.recent_chars):
+                        now = time.time()
+                        if now - self.last_alert_time >= GARBAGE_COOLDOWN:
+                            self.last_alert_time = now
+                            self._trigger_garbage_alert()
                 self.recent_chars.clear()
-                self._trigger_garbage_alert()
+            elif c.isprintable() and ord(c) > 31:
+                self.recent_chars.append(c)
+                # ตรวจ real-time เมื่อมีพอ แต่ใช้ตัวอักษรตั้งแต่ต้นคำ
+                if len(self.recent_chars) >= MIN_CHARS:
+                    if is_garbage(self.recent_chars):
+                        now = time.time()
+                        if now - self.last_alert_time >= GARBAGE_COOLDOWN:
+                            self.last_alert_time = now
+                            self.recent_chars.clear()
+                            self._trigger_garbage_alert()
 
     def _trigger_garbage_alert(self):
         lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"

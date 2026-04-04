@@ -1,36 +1,55 @@
 #!/bin/bash
 # ============================================================
-#  Font Switch Reminder — ติดตั้งและรันบน iMac
-#  วิธีใช้: เปิด Terminal แล้วรัน  bash install.sh
+#  Font Switch Reminder — ติดตั้งบน iMac
+#  รัน: bash install.sh
 # ============================================================
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHON="python3"
 APP="$SCRIPT_DIR/font_reminder.py"
-PLIST="$HOME/Library/LaunchAgents/com.fontswitch.reminder.plist"
+VENV="$SCRIPT_DIR/venv"
 
 echo ""
-echo "📦 ติดตั้ง rumps..."
-$PYTHON -m pip install --quiet --upgrade rumps
-
-echo ""
-echo "🧪 ทดสอบ import..."
-$PYTHON -c "import rumps; print('✅ rumps พร้อมใช้งาน')"
-
-echo ""
-echo "🚀 รัน Font Switch Reminder..."
-echo "   → ดูที่ menu bar มุมขวาบน (🇺🇸 หรือ 🇹🇭)"
-echo "   → กด Ctrl+C เพื่อหยุด"
+echo "========================================"
+echo "  Font Switch Reminder — ติดตั้ง"
+echo "========================================"
 echo ""
 
-# ถาม user ว่าต้องการเพิ่มใน Login Items หรือไม่
-read -p "➡️  ต้องการให้เริ่มอัตโนมัติทุกครั้งที่เปิดเครื่องไหม? (y/n): " AUTO_START
+# 1. สร้าง venv ถ้ายังไม่มี
+if [ ! -d "$VENV" ]; then
+    echo "📦 สร้าง virtual environment..."
+    python3 -m venv "$VENV"
+fi
 
-if [[ "$AUTO_START" == "y" || "$AUTO_START" == "Y" ]]; then
-    echo ""
-    echo "📌 เพิ่ม LaunchAgent..."
+# 2. ติดตั้ง dependencies
+echo "📦 ติดตั้ง packages..."
+"$VENV/bin/pip" install --quiet --upgrade pip
+"$VENV/bin/pip" install --quiet rumps pyobjc-framework-Cocoa pyobjc-framework-Quartz
+echo "✅ ติดตั้ง packages เสร็จ"
+
+# 3. แจ้งเรื่อง Accessibility
+echo ""
+echo "========================================"
+echo "  ⚠️  ต้องให้สิทธิ์ Accessibility ก่อน"
+echo "========================================"
+echo ""
+echo "  1. เปิด System Settings"
+echo "  2. Privacy & Security → Accessibility"
+echo "  3. กด + แล้วเพิ่ม Terminal.app"
+echo "     (หรือ app ที่ใช้รัน script นี้)"
+echo "  4. เปิด toggle ให้เป็นสีเขียว"
+echo ""
+echo "  ถ้าไม่ให้สิทธิ์ → ตรวจจับ garbage จะไม่ทำงาน"
+echo "  (เสียงตอนสลับภาษา + timer จะยังทำงานได้)"
+echo ""
+read -p "➡️  ให้สิทธิ์แล้ว กด Enter เพื่อเริ่มแอพ..."
+
+# 4. ถามเรื่อง auto-start
+echo ""
+read -p "➡️  ต้องการให้เริ่มอัตโนมัติทุกครั้งที่เปิดเครื่องไหม? (y/n): " AUTO
+
+if [[ "$AUTO" == "y" || "$AUTO" == "Y" ]]; then
+    PLIST="$HOME/Library/LaunchAgents/com.fontswitch.reminder.plist"
     cat > "$PLIST" << PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -41,7 +60,7 @@ if [[ "$AUTO_START" == "y" || "$AUTO_START" == "Y" ]]; then
     <string>com.fontswitch.reminder</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$(which python3)</string>
+        <string>$VENV/bin/python3</string>
         <string>$APP</string>
     </array>
     <key>RunAtLoad</key>
@@ -55,11 +74,13 @@ if [[ "$AUTO_START" == "y" || "$AUTO_START" == "Y" ]]; then
 </dict>
 </plist>
 PLIST_EOF
-
     launchctl load "$PLIST" 2>/dev/null || true
-    echo "✅ เพิ่มแล้ว! จะเริ่มอัตโนมัติทุกครั้งที่เปิดเครื่อง"
-    echo "   หากต้องการถอดออก: launchctl unload $PLIST && rm $PLIST"
+    echo "✅ เพิ่มแล้ว จะเริ่มอัตโนมัติทุกครั้งที่เปิดเครื่อง"
 fi
 
 echo ""
-$PYTHON "$APP"
+echo "🚀 เริ่ม Font Switch Reminder..."
+echo "   → ดูที่ menu bar มุมขวาบน (🇺🇸 / 🇹🇭)"
+echo "   → กด Ctrl+C เพื่อหยุด"
+echo ""
+"$VENV/bin/python3" "$APP"

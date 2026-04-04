@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-Font Switch Reminder — macOS Menu Bar App
-==========================================
-แสดงภาษาปัจจุบันบน menu bar + เสียงเตือนเมื่อสลับภาษาหรืออยู่นานเกินไป
+Font Switch Reminder — Global Keyboard Monitor
+===============================================
+ตรวจจับทุก keystroke ทั่วทั้ง iMac แบบ real-time
+ถ้าพิมพ์ผิดภาษา (garbage text) → เสียงเตือนทันที
 
-ติดตั้ง:
-    pip3 install rumps
+ต้องการ:
+    pip install rumps pyobjc-framework-Cocoa pyobjc-framework-Quartz
 
-รัน:
-    python3 font_reminder.py
-
-เพิ่มใน Login Items:
-    System Settings → General → Login Items → เพิ่ม script นี้
+ต้องการสิทธิ์ Accessibility:
+    System Settings → Privacy & Security → Accessibility → เปิดให้ Terminal (หรือ app นี้)
 """
 
 import rumps
@@ -21,70 +19,116 @@ import time
 import os
 import sys
 
-# ── เสียงระบบที่มีบน macOS ──────────────────────────────────
-SOUND_SWITCH = "/System/Library/Sounds/Tink.aiff"       # เสียงสั้น เมื่อสลับภาษา
-SOUND_WARN   = "/System/Library/Sounds/Sosumi.aiff"     # เสียงเตือน เมื่ออยู่นานเกิน
-SOUND_ALERT  = "/System/Library/Sounds/Glass.aiff"      # เสียงแจ้งเตือนเร่งด่วน
+from AppKit import NSEvent, NSKeyDownMask
 
-REMINDER_OPTIONS = [1, 2, 3, 5, 10, 15, 30]  # ตัวเลือกนาที
+# ── Thai character sets ──────────────────────────────────────
+THAI_VOWELS = set('ะาิีึืุูเแโใไๆำ็ัํ่้๊๋')
+EN_VOWELS   = set('aeiouAEIOU')
+
+# ── Tuning ───────────────────────────────────────────────────
+BUFFER_SIZE       = 7     # ตรวจสอบจาก 7 ตัวอักษรล่าสุด
+MIN_CHARS         = 4     # ต้องมีอย่างน้อย N ตัวก่อนตรวจ
+GARBAGE_COOLDOWN  = 3.0   # วินาที — ไม่เตือนซ้ำถี่เกินนี้
+REMINDER_OPTIONS  = [1, 2, 3, 5, 10, 15, 30]
+
+SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"   # พิมพ์ผิดภาษา
+SOUND_SWITCH  = "/System/Library/Sounds/Tink.aiff"     # สลับภาษา
+SOUND_IDLE    = "/System/Library/Sounds/Glass.aiff"    # อยู่นานเกิน
 
 
-def get_input_source() -> str:
-    """คืนค่า 'th' หรือ 'en' ตาม input source ปัจจุบัน"""
-    try:
-        result = subprocess.run(
-            ["defaults", "read", "com.apple.HIToolbox",
-             "AppleCurrentKeyboardLayoutInputSourceID"],
-            capture_output=True, text=True, timeout=1
-        )
-        return "th" if "Thai" in result.stdout else "en"
-    except Exception:
-        return "en"
+# ── helpers ──────────────────────────────────────────────────
+def is_thai(c: str) -> bool:
+    return '\u0E00' <= c <= '\u0E7F'
 
+def is_latin(c: str) -> bool:
+    return c.isalpha() and not is_thai(c)
 
 def play_sound(path: str):
-    """เล่นเสียงแบบ non-blocking"""
     subprocess.Popen(["afplay", path],
                      stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
 
+def get_input_source() -> str:
+    try:
+        r = subprocess.run(
+            ["defaults", "read", "com.apple.HIToolbox",
+             "AppleCurrentKeyboardLayoutInputSourceID"],
+            capture_output=True, text=True, timeout=1
+        )
+        return "th" if "Thai" in r.stdout else "en"
+    except Exception:
+        return "en"
 
+def is_garbage(chars: list) -> bool:
+    """คืน True ถ้าตัวอักษรล่าสุดดูเหมือนพิมพ์ผิดภาษา"""
+    th = [c for c in chars if is_thai(c)]
+    en = [c for c in chars if is_latin(c)]
+    total = len(th) + len(en)
+
+    if total < MIN_CHARS:
+        return False
+
+    # กรณี Thai chars มากกว่า แต่ไม่มี vowel เลย
+    # = พิมพ์ภาษาอังกฤษขณะ Thai mode เปิดอยู่
+    if len(th) > len(en):
+        vowel_ratio = sum(1 for c in th if c in THAI_VOWELS) / len(th)
+        return vowel_ratio < 0.10
+
+    # กรณี Latin chars มากกว่า แต่ไม่มี vowel เลย
+    # = พิมพ์ตำแหน่ง Thai Kedmanee ขณะ English mode เปิดอยู่
+    if len(en) > len(th):
+        vowel_ratio = sum(1 for c in en if c in EN_VOWELS) / len(en)
+        return vowel_ratio < 0.08
+
+    return False
+
+
+# ════════════════════════════════════════════════════════════
 class FontSwitchApp(rumps.App):
+
     def __init__(self):
         super().__init__("🇺🇸", quit_button=None)
 
-        self.current_lang    = get_input_source()
+        self.current_lang     = get_input_source()
         self.last_switch_time = time.time()
-        self.reminder_min    = 5
-        self.sound_enabled   = True
-        self.alert_on_switch = True
+        self.last_alert_time  = 0.0
+        self.reminder_min     = 5
+        self.sound_enabled    = True
+        self.monitoring       = False
 
-        # ── อัปเดต icon เริ่มต้น ──
+        self.recent_chars: list[str] = []
+
         self._update_icon()
 
-        # ── เมนู ──
-        self.lang_item    = rumps.MenuItem("", callback=None)
-        self.sound_item   = rumps.MenuItem("🔔 เสียงเตือน: เปิด",   callback=self.toggle_sound)
-        self.switch_item  = rumps.MenuItem("🔁 เสียงตอนสลับ: เปิด", callback=self.toggle_switch_sound)
-        self.timer_item   = rumps.MenuItem(f"⏱ เตือนทุก {self.reminder_min} นาที", callback=self.cycle_timer)
-        quit_item         = rumps.MenuItem("❌ ออก", callback=rumps.quit_application)
+        # ── menu items ──
+        self.lang_item   = rumps.MenuItem("", callback=None)
+        self.mon_item    = rumps.MenuItem("🔍 ตรวจ garbage: ปิด", callback=self.toggle_monitor)
+        self.sound_item  = rumps.MenuItem("🔔 เสียงเตือน: เปิด",  callback=self.toggle_sound)
+        self.timer_item  = rumps.MenuItem(f"⏱ เตือนทุก {self.reminder_min} นาที", callback=self.cycle_timer)
+        self.access_item = rumps.MenuItem("⚙️ วิธีให้สิทธิ์ Accessibility", callback=self.open_accessibility)
+        quit_item        = rumps.MenuItem("❌ ออก", callback=rumps.quit_application)
 
         self.menu = [
             self.lang_item,
             None,
+            self.mon_item,
             self.sound_item,
-            self.switch_item,
             self.timer_item,
+            None,
+            self.access_item,
             None,
             quit_item,
         ]
         self._update_lang_item()
 
-        # ── Thread ตรวจ input source ──
-        t = threading.Thread(target=self._monitor_loop, daemon=True)
+        # ── thread ตรวจ input source + idle timer ──
+        t = threading.Thread(target=self._source_loop, daemon=True)
         t.start()
 
-    # ── helpers ────────────────────────────────────────────────
+        # ── เริ่ม global keyboard monitor บน main thread ──
+        self._start_global_monitor()
+
+    # ── icon / label ────────────────────────────────────────
     def _update_icon(self):
         self.title = "🇹🇭" if self.current_lang == "th" else "🇺🇸"
 
@@ -92,68 +136,126 @@ class FontSwitchApp(rumps.App):
         lang_str = "ภาษาไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"
         self.lang_item.title = f"ตอนนี้: {lang_str}"
 
-    # ── monitor loop ───────────────────────────────────────────
-    def _monitor_loop(self):
+    # ── global keyboard monitor ──────────────────────────────
+    def _start_global_monitor(self):
+        """ลงทะเบียน global event tap ผ่าน NSEvent (ต้องการสิทธิ์ Accessibility)"""
+        try:
+            self._monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+                NSKeyDownMask,
+                self._handle_key_event
+            )
+            self.monitoring = True
+            self.mon_item.title = "🔍 ตรวจ garbage: เปิด ✅"
+            print("✅ Global keyboard monitor เริ่มทำงาน")
+        except Exception as e:
+            print(f"⚠️ ไม่สามารถเริ่ม keyboard monitor: {e}")
+            print("   → ต้องให้สิทธิ์ Accessibility ก่อน")
+            self.mon_item.title = "🔍 ตรวจ garbage: ❌ ต้องการสิทธิ์"
+
+    def _handle_key_event(self, event):
+        """รับทุก keystroke จากทุกโปรแกรมบน iMac"""
+        if not self.monitoring:
+            return
+
+        chars = event.characters()
+        if not chars:
+            return
+
+        for c in chars:
+            if c.isprintable() and not c.isspace() and ord(c) > 31:
+                self.recent_chars.append(c)
+                if len(self.recent_chars) > BUFFER_SIZE:
+                    self.recent_chars.pop(0)
+
+        # ตรวจ garbage
+        if is_garbage(self.recent_chars):
+            now = time.time()
+            if now - self.last_alert_time >= GARBAGE_COOLDOWN:
+                self.last_alert_time = now
+                self.recent_chars.clear()
+                self._trigger_garbage_alert()
+
+    def _trigger_garbage_alert(self):
+        lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"
+        if self.sound_enabled:
+            play_sound(SOUND_GARBAGE)
+            threading.Timer(0.5, lambda: play_sound(SOUND_GARBAGE)).start()
+
+        rumps.notification(
+            title="⚠️ ลืมเปลี่ยนภาษา!",
+            subtitle=f"Input อยู่ใน {lang_str} — กด Caps Lock ด่วน!",
+            message="ตรวจพบว่าพิมพ์ข้อความมั่วไม่มีความหมาย",
+            sound=False,
+        )
+
+    # ── background loop: input source + idle timer ───────────
+    def _source_loop(self):
         while True:
             lang = get_input_source()
 
-            # ตรวจสอบการสลับภาษา
             if lang != self.current_lang:
                 self.current_lang     = lang
                 self.last_switch_time = time.time()
+                self.recent_chars.clear()  # reset buffer เมื่อสลับภาษา
                 self._update_icon()
                 self._update_lang_item()
 
-                if self.alert_on_switch and self.sound_enabled:
+                if self.sound_enabled:
                     play_sound(SOUND_SWITCH)
 
-            # ตรวจสอบว่าอยู่นานเกิน reminder_min หรือยัง
-            idle_secs = time.time() - self.last_switch_time
-            if idle_secs >= self.reminder_min * 60:
-                self.last_switch_time = time.time()  # reset ไม่ให้เตือนซ้ำ
+            # idle timer
+            idle = time.time() - self.last_switch_time
+            if idle >= self.reminder_min * 60:
+                self.last_switch_time = time.time()
                 lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"
-                mins = self.reminder_min
-
                 if self.sound_enabled:
-                    play_sound(SOUND_WARN)
+                    play_sound(SOUND_IDLE)
                     time.sleep(0.6)
-                    play_sound(SOUND_WARN)  # เตือน 2 ครั้ง
-
+                    play_sound(SOUND_IDLE)
                 rumps.notification(
-                    title="⌨️ Font Switch Reminder",
-                    subtitle=f"อยู่ใน {lang_str} นาน {mins} นาทีแล้ว",
-                    message="ตรวจสอบว่าภาษาถูกต้องก่อนพิมพ์ต่อนะ!",
+                    title="⏰ ยังไม่ได้เปลี่ยนภาษา",
+                    subtitle=f"อยู่ใน {lang_str} นาน {self.reminder_min} นาทีแล้ว",
+                    message="ตรวจสอบว่าภาษาถูกต้องก่อนพิมพ์ต่อ",
                     sound=False,
                 )
 
-            time.sleep(0.8)  # ตรวจทุก 0.8 วินาที
+            time.sleep(0.8)
 
-    # ── menu callbacks ─────────────────────────────────────────
+    # ── menu callbacks ────────────────────────────────────────
+    def toggle_monitor(self, sender):
+        self.monitoring = not self.monitoring
+        state = "เปิด ✅" if self.monitoring else "ปิด"
+        sender.title = f"🔍 ตรวจ garbage: {state}"
+
     def toggle_sound(self, sender):
         self.sound_enabled = not self.sound_enabled
-        icon = "🔔" if self.sound_enabled else "🔕"
+        icon  = "🔔" if self.sound_enabled else "🔕"
         state = "เปิด" if self.sound_enabled else "ปิด"
         sender.title = f"{icon} เสียงเตือน: {state}"
-
-    def toggle_switch_sound(self, sender):
-        self.alert_on_switch = not self.alert_on_switch
-        icon = "🔁" if self.alert_on_switch else "🔇"
-        state = "เปิด" if self.alert_on_switch else "ปิด"
-        sender.title = f"{icon} เสียงตอนสลับ: {state}"
 
     def cycle_timer(self, sender):
         idx = REMINDER_OPTIONS.index(self.reminder_min) \
               if self.reminder_min in REMINDER_OPTIONS else 3
         self.reminder_min = REMINDER_OPTIONS[(idx + 1) % len(REMINDER_OPTIONS)]
-        self.last_switch_time = time.time()  # reset timer
+        self.last_switch_time = time.time()
         sender.title = f"⏱ เตือนทุก {self.reminder_min} นาที"
 
+    def open_accessibility(self, _):
+        subprocess.run([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ])
 
+
+# ════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    # ต้องการ macOS
     if sys.platform != "darwin":
-        print("❌ แอพนี้ใช้ได้บน macOS เท่านั้น")
+        print("❌ ใช้ได้บน macOS เท่านั้น")
         sys.exit(1)
 
-    print("✅ Font Switch Reminder เริ่มทำงาน — ดูที่ menu bar บนขวา")
+    print("✅ Font Switch Reminder เริ่มทำงาน")
+    print("   → ดูที่ menu bar มุมขวาบน")
+    print("   → ถ้าไม่มีเสียงเตือน garbage → ต้องให้สิทธิ์ Accessibility")
+    print("   → คลิก menu bar icon → '⚙️ วิธีให้สิทธิ์ Accessibility'")
+
     FontSwitchApp().run()

@@ -101,10 +101,22 @@ def is_garbage(chars: list) -> bool:
         except ImportError:
             pass   # ไม่มี pythainlp → ข้ามได้
 
-    # ── EN garbage ────────────────────────────────────────────
-    if len(en) >= MIN_CHARS and len(en) > len(th):
-        vowels = sum(1 for c in en if c in EN_VOWELS)
-        if vowels / len(en) < 0.08:
+    # ── EN garbage (Thai Kedmanee typed in EN mode) ──────────
+    # นับ non-Thai printable chars ทั้งหมด รวม ;' ที่ใช้ใน Thai Kedmanee
+    non_th = [c for c in chars
+              if not is_thai(c) and c.isprintable() and ord(c) > 32]
+    en_letters = [c for c in non_th if c.isalpha()]
+
+    if len(non_th) >= MIN_CHARS and len(non_th) > len(th):
+        vowels = sum(1 for c in en_letters if c in EN_VOWELS)
+        denom  = len(en_letters) if en_letters else 1
+        ratio  = vowels / denom
+        # Rule E: ไม่มี vowel เลย
+        if ratio < 0.08:
+            return True
+        # Rule F: มี ;/' (Thai ว/ง keys) + vowel ต่ำ
+        has_thai_special = any(c in (';', "'") for c in non_th)
+        if has_thai_special and ratio <= 0.20:
             return True
 
     return False

@@ -37,7 +37,7 @@ TH_SPECIAL_KEYS = set(";',./-")
 
 # ── Tuning ──────────────────────────────────────────────────
 MIN_CHARS        = 4
-GARBAGE_COOLDOWN = 0.8
+GARBAGE_COOLDOWN = 0.4
 REMINDER_OPTIONS = [1, 2, 3, 5, 10, 15, 30]
 
 SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"

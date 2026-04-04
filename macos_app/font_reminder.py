@@ -180,20 +180,20 @@ class FontSwitchApp(rumps.App):
         """รับทุก keystroke จากทุกโปรแกรมบน iMac"""
         if not self.monitoring:
             return
-
-        chars = event.characters()
-        if not chars:
-            return
-
-        for c in chars:
-            # space / enter / punctuation → จบคำ → ตรวจแล้ว reset
-            if c in (' ', '\r', '\n', '\t', '.', ',', '!', '?', ':', ';'):
-                self._check_and_alert()
-                self.recent_chars.clear()
-            elif c.isprintable() and ord(c) > 31:
-                self.recent_chars.append(c)
-                if len(self.recent_chars) >= MIN_CHARS:
+        try:
+            chars = event.characters()
+            if not chars:
+                return
+            for c in chars:
+                if c in (' ', '\r', '\n', '\t', '.', ',', '!', '?', ':', ';'):
                     self._check_and_alert()
+                    self.recent_chars.clear()
+                elif c.isprintable() and ord(c) > 31:
+                    self.recent_chars.append(c)
+                    if len(self.recent_chars) >= MIN_CHARS:
+                        self._check_and_alert()
+        except Exception as e:
+            print(f"[key handler error] {e}")
 
     def _check_and_alert(self):
         if len(self.recent_chars) < MIN_CHARS:
@@ -205,20 +205,29 @@ class FontSwitchApp(rumps.App):
             return
         self.last_alert_time = now
         self.recent_chars.clear()
-        self._trigger_garbage_alert()
+        # ── fire ใน thread แยก เพื่อไม่ block main run loop ──
+        threading.Thread(target=self._trigger_garbage_alert, daemon=True).start()
 
     def _trigger_garbage_alert(self):
         lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"
+        print(f"[ALERT] garbage detected — input: {self.current_lang}")
+
+        # เสียงเตือน (ไม่ขึ้นกับ notification)
         if self.sound_enabled:
             play_sound(SOUND_GARBAGE)
-            threading.Timer(0.5, lambda: play_sound(SOUND_GARBAGE)).start()
+            time.sleep(0.5)
+            play_sound(SOUND_GARBAGE)
 
-        rumps.notification(
-            title="⚠️ ลืมเปลี่ยนภาษา!",
-            subtitle=f"Input อยู่ใน {lang_str} — กด Caps Lock ด่วน!",
-            message="ตรวจพบว่าพิมพ์ข้อความมั่วไม่มีความหมาย",
-            sound=False,
-        )
+        # ใช้ osascript แทน rumps.notification เพราะเสถียรกว่า
+        msg  = f"ตรวจพบข้อความมั่วไม่มีความหมาย — กด Caps Lock ด่วน!"
+        title = "⚠️ ลืมเปลี่ยนภาษา!"
+        try:
+            subprocess.run([
+                "osascript", "-e",
+                f'display notification "{msg}" with title "{title}"'
+            ], timeout=3, capture_output=True)
+        except Exception as e:
+            print(f"[notify error] {e}")
 
     # ── background loop: input source + idle timer ───────────
     def _source_loop(self):

@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Font Switch Reminder · EN ⇄ TH</title>
+  <style>
+    /* ── DARK theme (default) ── */
+    [data-theme="dark"] {
+      --bg: #0f0f14;
+      --card: #1a1a24;
+      --border: #2e2e42;
+      --text: #e8e8f0;
+      --dim: #7070a0;
+      --kbd-bg: #2a2a3c;
+      --kbd-border: #44445a;
+      --kbd-text: #c8c8e8;
+      --fix-out-bg: #131a13;
+      --fix-out-border: #2e3a2e;
+    }
+    /* ── LIGHT theme ── */
+    [data-theme="light"] {
+      --bg: #f4f4f8;
+      --card: #ffffff;
+      --border: #d0d0e0;
+      --text: #1a1a2e;
+      --dim: #8080aa;
+      --kbd-bg: #e8e8f4;
+      --kbd-border: #b0b0cc;
+      --kbd-text: #2a2a4a;
+      --fix-out-bg: #f0fff4;
+      --fix-out-border: #a0d8b0;
+    }
+    :root {
+      --en-color: #4f9eff;
+      --th-color: #ff6b6b;
+      --ok-color: #4caf86;
+      --warn-color: #ffb347;
+      --fix-color: #a78bfa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px 16px 60px;
+    }
+    h1 { font-size: 1rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); margin-bottom: 22px; text-transform: uppercase; }
+
+    /* ── Mode pill ── */
+    #mode-display {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: 999px; padding: 12px 28px; margin-bottom: 18px;
+      transition: border-color .2s;
+    }
+    #mode-flag  { font-size: 2rem; line-height: 1; }
+    #mode-label { font-size: 1.5rem; font-weight: 700; letter-spacing: .06em; }
+    #mode-display.lang-en { border-color: var(--en-color); }
+    #mode-display.lang-en #mode-label { color: var(--en-color); }
+    #mode-display.lang-th { border-color: var(--th-color); }
+    #mode-display.lang-th #mode-label { color: var(--th-color); }
+
+    /* ── Alert banner ── */
+    #alert-banner {
+      width: 100%; max-width: 560px;
+      background: var(--warn-color); color: #1a1100;
+      border-radius: 12px; padding: 13px 18px;
+      font-size: .95rem; font-weight: 700; text-align: center;
+      display: none; margin-bottom: 16px;
+      animation: pulse .55s ease-in-out infinite alternate;
+    }
+    #alert-banner.visible { display: block; }
+    @keyframes pulse { from { opacity:1; transform:scale(1); } to { opacity:.85; transform:scale(1.01); } }
+
+    /* ── Typing area ── */
+    #textarea-wrap { width: 100%; max-width: 560px; position: relative; margin-bottom: 16px; }
+    #typing-area {
+      width: 100%; min-height: 160px;
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: 14px; color: var(--text);
+      font-size: 1.05rem; line-height: 1.65; padding: 16px; resize: vertical;
+      outline: none; transition: border-color .2s; font-family: inherit;
+    }
+    #typing-area:focus { border-color: var(--en-color); }
+    #typing-area.mismatch { border-color: var(--warn-color) !important; }
+    #char-hint { position: absolute; bottom: 9px; right: 13px; font-size: .72rem; color: var(--dim); pointer-events: none; }
+
+    /* ── Stats ── */
+    .stats { display: flex; gap: 10px; margin-bottom: 16px; width: 100%; max-width: 560px; }
+    .stat-card { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 10px; text-align: center; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; margin-bottom: 3px; }
+    .stat-label { font-size: .68rem; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+    .stat-card.en .stat-value { color: var(--en-color); }
+    .stat-card.th .stat-value { color: var(--th-color); }
+    .stat-card.warn .stat-value { color: var(--warn-color); }
+
+    /* ── Controls ── */
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 560px; margin-bottom: 24px; }
+    button {
+      border: none; border-radius: 10px; padding: 9px 20px;
+      font-size: .88rem; font-weight: 600; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    button:active { transform: scale(0.96); }
+    #btn-clear { background: var(--border); color: var(--text); }
+    #btn-sound { background: var(--card); color: var(--ok-color); border: 1px solid var(--ok-color); }
+    #btn-sound.off { color: var(--dim); border-color: var(--border); }
+
+    /* ════════════════════════════════
+       FIX ZONE
+    ════════════════════════════════ */
+    .section-divider {
+      width: 100%; max-width: 560px;
+      border: none; border-top: 1px solid var(--border);
+      margin: 8px 0 22px;
+    }
+    .section-title {
+      width: 100%; max-width: 560px;
+      font-size: .78rem; color: var(--fix-color); font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px;
+    }
+
+    .fix-zone { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+
+    .fix-input-wrap { position: relative; }
+    .fix-label { font-size: .75rem; color: var(--dim); margin-bottom: 6px; display: block; }
+
+    textarea.fix-textarea, textarea.fix-output {
+      width: 100%; min-height: 100px;
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: 12px; color: var(--text);
+      font-size: 1rem; line-height: 1.6; padding: 14px;
+      resize: vertical; outline: none; font-family: inherit;
+      transition: border-color .2s;
+    }
+    textarea.fix-textarea:focus { border-color: var(--fix-color); }
+    textarea.fix-output {
+      color: var(--ok-color); border-color: var(--fix-out-border);
+      background: var(--fix-out-bg); cursor: default;
+    }
+
+    .fix-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fix-btn-convert { background: var(--fix-color); color: #fff; }
+    .fix-btn-copy    { background: var(--ok-color); color: #fff; display: none; }
+    .fix-btn-swap    { background: var(--card); color: var(--dim); border: 1px solid var(--border); }
+    .fix-btn-clear   { background: var(--border); color: var(--dim); }
+
+    .direction-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--card); border: 1px solid var(--fix-color);
+      border-radius: 999px; padding: 5px 14px;
+      font-size: .8rem; color: var(--fix-color); font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    /* garbage indicator */
+    .garbage-tag {
+      display: none;
+      background: var(--warn-color); color: #1a1100;
+      border-radius: 6px; padding: 2px 10px; font-size: .75rem; font-weight: 700;
+      position: absolute; top: 9px; right: 12px;
+    }
+    .garbage-tag.visible { display: inline-block; }
+
+    /* ── Shortcut card ── */
+    .shortcut-box {
+      width: 100%; max-width: 560px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px 18px; margin-top: 8px;
+    }
+    .shortcut-box h2 { font-size: .75rem; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 12px; }
+    .shortcut-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .87rem; }
+    .shortcut-row:last-child { margin-bottom: 0; }
+    kbd {
+      background: var(--kbd-bg); border: 1px solid var(--kbd-border); border-radius: 6px;
+      padding: 2px 8px; font-size: .78rem; font-family: monospace; color: var(--kbd-text); white-space: nowrap;
+    }
+    .arrow { color: var(--dim); font-size: .78rem; }
+
+    /* ── Flash overlay ── */
+    #flash-overlay { position: fixed; inset: 0; pointer-events: none; background: var(--warn-color); opacity: 0; transition: opacity .08s; z-index: 999; }
+
+    /* ── Top toolbar ── */
+    .toolbar {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; max-width: 560px; margin-bottom: 18px;
+      justify-content: flex-end;
+    }
+    .icon-btn {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 7px 14px;
+      font-size: .82rem; font-weight: 600; cursor: pointer; color: var(--text);
+      transition: opacity .15s, transform .1s;
+    }
+    .icon-btn:active { transform: scale(.95); }
+    .icon-btn.active { border-color: var(--ok-color); color: var(--ok-color); }
+
+    /* ── Timer bar ── */
+    #timer-section {
+      width: 100%; max-width: 560px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px 18px; margin-bottom: 16px;
+    }
+    .timer-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .timer-label { font-size: .8rem; color: var(--dim); flex-shrink: 0; }
+    #timer-display {
+      font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums;
+      min-width: 64px; color: var(--ok-color);
+    }
+    #timer-display.warning { color: var(--warn-color); animation: pulse .6s ease-in-out infinite alternate; }
+    #timer-limit-input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 4px 10px; font-size: .85rem; width: 70px;
+      outline: none;
+    }
+    #timer-limit-input:focus { border-color: var(--fix-color); }
+    .timer-unit { font-size: .78rem; color: var(--dim); }
+    #timer-progress-wrap {
+      width: 100%; height: 5px; background: var(--border);
+      border-radius: 99px; margin-top: 10px; overflow: hidden;
+    }
+    #timer-progress { height: 100%; width: 0%; background: var(--ok-color); transition: width .5s linear, background .3s; border-radius: 99px; }
+    #timer-progress.warning { background: var(--warn-color); }
+  </style>
+</head>
+<body>
+
+<div id="flash-overlay"></div>
+
+<h1>⌨️ Font Switch Reminder</h1>
+
+<!-- ── TOOLBAR ── -->
+<div class="toolbar">
+  <button class="icon-btn" id="btn-theme">☀️ Light</button>
+  <button class="icon-btn active" id="btn-notify">🔔 Notify ON</button>
+</div>
+
+<!-- ── TIMER ── -->
+<div id="timer-section">
+  <div class="timer-row">
+    <span class="timer-label">ไม่ได้สลับภาษานาน:</span>
+    <span id="timer-display">0:00</span>
+    <span class="timer-label" style="margin-left:auto">เตือนเมื่อครบ</span>
+    <input type="number" id="timer-limit-input" value="5" min="1" max="60" />
+    <span class="timer-unit">นาที</span>
+  </div>
+  <div id="timer-progress-wrap"><div id="timer-progress"></div></div>
+</div>
+
+<!-- ── LIVE MODE ── -->
+<div id="mode-display" class="lang-en">
+  <span id="mode-flag">🇺🇸</span>
+  <span id="mode-label">ENGLISH</span>
+</div>
+
+<div id="alert-banner">⚠️ ลืมเปลี่ยนภาษา! กด <kbd style="background:#fff3;border:none;padding:1px 6px">Caps Lock</kbd></div>
+
+<div id="textarea-wrap">
+  <textarea id="typing-area" placeholder="พิมพ์ข้อความที่นี่เพื่อตรวจจับภาษา..."></textarea>
+  <span id="char-hint">0 chars</span>
+</div>
+
+<div class="stats">
+  <div class="stat-card en"><div class="stat-value" id="en-count">0</div><div class="stat-label">EN chars</div></div>
+  <div class="stat-card th"><div class="stat-value" id="th-count">0</div><div class="stat-label">TH chars</div></div>
+  <div class="stat-card warn"><div class="stat-value" id="alert-count">0</div><div class="stat-label">Alerts</div></div>
+</div>
+
+<div class="controls">
+  <button id="btn-clear">🗑 Clear</button>
+  <button id="btn-sound">🔔 Sound ON</button>
+</div>
+
+<!-- ── FIX ZONE ── -->
+<hr class="section-divider" />
+<div class="section-title">🔧 แก้ข้อความที่พิมพ์ผิดภาษา (Fix Zone)</div>
+
+<div class="fix-zone">
+
+  <!-- Direction toggle -->
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="direction-pill" id="dir-pill">
+      <span id="dir-from">🇺🇸 EN keys</span>
+      <span>→</span>
+      <span id="dir-to">🇹🇭 ไทย</span>
+    </div>
+    <button class="fix-btn-swap" id="fix-swap">⇄ สลับทิศทาง</button>
+  </div>
+
+  <!-- Input -->
+  <div class="fix-input-wrap">
+    <label class="fix-label" id="fix-input-label">วางข้อความที่พิมพ์ผิด (กด EN key แต่ต้องการไทย):</label>
+    <textarea class="fix-textarea" id="fix-input" placeholder="วางข้อความที่พิมพ์ผิดตรงนี้..."></textarea>
+    <span class="garbage-tag" id="garbage-tag">⚠ ดูเหมือนผิดภาษา!</span>
+  </div>
+
+  <div class="fix-actions">
+    <button class="fix-btn-convert" id="fix-convert">✨ แปลงให้ถูกต้อง</button>
+    <button class="fix-btn-copy" id="fix-copy">📋 Copy ผลลัพธ์</button>
+    <button class="fix-btn-clear" id="fix-clear-btn">🗑 Clear</button>
+  </div>
+
+  <!-- Output -->
+  <div>
+    <label class="fix-label">ผลลัพธ์ที่แก้แล้ว:</label>
+    <textarea class="fix-output" id="fix-output" readonly placeholder="ผลลัพธ์จะปรากฏที่นี่..."></textarea>
+  </div>
+
+</div>
+
+<!-- ── SHORTCUTS ── -->
+<div class="shortcut-box" style="margin-top:24px">
+  <h2>⌘ macOS Keyboard Shortcuts</h2>
+  <div class="shortcut-row"><kbd>Caps Lock</kbd><span class="arrow">→</span><span>สลับภาษาไทย / อังกฤษ</span></div>
+  <div class="shortcut-row"><kbd>⌃</kbd>+<kbd>Space</kbd><span class="arrow">→</span><span>สลับ Input Source ถัดไป</span></div>
+  <div class="shortcut-row"><kbd>⌃</kbd>+<kbd>⌥</kbd>+<kbd>Space</kbd><span class="arrow">→</span><span>เลือก Input Source จากเมนู</span></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════
+//  Thai Kedmanee keyboard layout mappings
+// ════════════════════════════════════════════
+// EN key → Thai char  (user pressed EN keys while Thai mode was needed)
+const EN_TO_TH = {
+  'q':'ๆ','w':'ไ','e':'ำ','r':'พ','t':'ะ','y':'ั','u':'ี','i':'ร','o':'น','p':'ย',
+  'a':'ฟ','s':'ห','d':'ก','f':'ด','g':'เ','h':'้','j':'่','k':'า','l':'ส',';':'ว',"'":'ง',
+  'z':'ผ','x':'ป','c':'แ','v':'อ','b':'ิ','n':'ื','m':'ท',',':'ม','.':'ใ','/':'ฝ',
+  'Q':'๐','W':'"','E':'ๅ','R':'ฑ','T':'ธ','Y':'ํ','U':'๊','I':'ณ','O':'ฯ','P':'ญ',
+  'A':'ฤ','S':'ฆ','D':'ฏ','F':'โ','G':'ฌ','H':'็','J':'๋','K':'ษ','L':'ศ',':':'ซ','"':'ฃ',
+  'Z':'(','X':')','C':'ฉ','V':'ฮ','B':'ฺ','N':'์','M':'?','<':'ฒ','>':'ฬ','?':'ฦ'
+};
+
+// Thai char → EN key  (user pressed Thai keys while English mode was needed)
+const TH_TO_EN = {};
+for (const [en, th] of Object.entries(EN_TO_TH)) TH_TO_EN[th] = en;
+
+// ── Thai char classification ──
+const THAI_VOWELS   = new Set('ะาิีึืุูเแโใไๆำ็ัํ่้๊๋');
+const THAI_RE       = /[\u0E00-\u0E7F]/g;
+const LATIN_RE      = /[A-Za-z]/g;
+
+function isGarbageThai(text) {
+  // Check if Thai text looks like keyboard mismatch:
+  // No real vowels among the Thai chars (all consonants = user typed EN words in TH mode)
+  const thChars = [...text].filter(c => /[\u0E00-\u0E7F]/.test(c));
+  if (thChars.length < 3) return false;
+  const vowelCount = thChars.filter(c => THAI_VOWELS.has(c)).length;
+  const ratio = vowelCount / thChars.length;
+  // Typical Thai text has ~25-40% vowels. <10% is suspicious.
+  return ratio < 0.10;
+}
+
+function isGarbageEN(text) {
+  // Check if EN text looks like keyboard mismatch:
+  // Detect Kedmanee pattern: many chars that map to Thai with no vowel-like letters
+  const letters = text.replace(/[^a-zA-Z]/g, '');
+  if (letters.length < 4) return false;
+  // EN vowels in the word
+  const enVowels = (letters.match(/[aeiouAEIOU]/g) || []).length;
+  const ratio = enVowels / letters.length;
+  // Real English typically has >20% vowels. <8% = likely Thai layout typed in EN mode
+  return ratio < 0.08;
+}
+
+// ════════════════════════════════════════════
+//  LIVE DETECTION
+// ════════════════════════════════════════════
+const MIXED_THRESHOLD = 0.08;
+const ALERT_COOLDOWN  = 2800;
+
+let soundOn = true;
+let alertCount = 0;
+let lastDetected = 'en';
+let lastAlertTime = 0;
+
+const textarea    = document.getElementById('typing-area');
+const modeDisplay = document.getElementById('mode-display');
+const modeFlag    = document.getElementById('mode-flag');
+const modeLabel   = document.getElementById('mode-label');
+const alertBanner = document.getElementById('alert-banner');
+const enCountEl   = document.getElementById('en-count');
+const thCountEl   = document.getElementById('th-count');
+const alertCountEl= document.getElementById('alert-count');
+const charHint    = document.getElementById('char-hint');
+const flash       = document.getElementById('flash-overlay');
+const btnClear    = document.getElementById('btn-clear');
+const btnSound    = document.getElementById('btn-sound');
+
+function beep(freq=660, dur=0.18, type='sine') {
+  if (!soundOn) return;
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain= ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0.28, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dur);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+dur);
+  } catch(e){}
+}
+
+function flashScreen() {
+  flash.style.opacity='0.18';
+  setTimeout(()=>{ flash.style.opacity='0'; }, 200);
+}
+
+function triggerAlert(msg) {
+  const now = Date.now();
+  if (now - lastAlertTime < ALERT_COOLDOWN) return;
+  lastAlertTime = now;
+  alertCount++;
+  alertCountEl.textContent = alertCount;
+  alertBanner.textContent  = msg;
+  alertBanner.classList.add('visible');
+  textarea.classList.add('mismatch');
+  beep(520,0.2,'square');
+  setTimeout(()=>beep(440,0.18,'square'), 210);
+  flashScreen();
+}
+
+function clearAlert() {
+  alertBanner.classList.remove('visible');
+  textarea.classList.remove('mismatch');
+}
+
+function setMode(lang) {
+  if (lang === lastDetected) return;
+  lastDetected = lang;
+  modeDisplay.className = 'lang-' + lang;
+  if (lang === 'en') { modeFlag.textContent='🇺🇸'; modeLabel.textContent='ENGLISH'; }
+  else               { modeFlag.textContent='🇹🇭'; modeLabel.textContent='ภาษาไทย'; }
+}
+
+function analyze() {
+  const text = textarea.value;
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total   = thChars + enChars;
+  charHint.textContent = text.length + ' chars';
+  enCountEl.textContent = enChars;
+  thCountEl.textContent = thChars;
+
+  if (total === 0) { clearAlert(); return; }
+
+  const thRatio = thChars / total;
+  const dominant = thRatio >= 0.5 ? 'th' : 'en';
+  setMode(dominant);
+
+  // Mixed language check
+  const minority = dominant === 'th' ? (enChars/total) : (thRatio);
+  if (total >= 5 && minority > MIXED_THRESHOLD) {
+    triggerAlert('⚠️ ตรวจพบภาษาปนกัน! ลืมกด Caps Lock หรือยัง?');
+    return;
+  }
+
+  // Garbage Thai check (typed EN words in TH keyboard mode)
+  if (dominant === 'th' && isGarbageThai(text)) {
+    triggerAlert('⚠️ ข้อความดูมั่วไม่มีความหมาย! ลืมเปลี่ยนเป็น EN ก่อนพิมพ์?');
+    return;
+  }
+
+  // Garbage EN check (typed TH keyboard positions in EN mode)
+  if (dominant === 'en' && isGarbageEN(text)) {
+    triggerAlert('⚠️ ดูเหมือนพิมพ์ด้วย TH layout แต่อยู่ใน EN mode!');
+    return;
+  }
+
+  clearAlert();
+}
+
+textarea.addEventListener('input', analyze);
+btnClear.addEventListener('click', ()=>{
+  textarea.value='';
+  enCountEl.textContent=thCountEl.textContent='0';
+  charHint.textContent='0 chars';
+  clearAlert();
+  analyze();
+});
+btnSound.addEventListener('click', ()=>{
+  soundOn=!soundOn;
+  btnSound.textContent = soundOn ? '🔔 Sound ON' : '🔕 Sound OFF';
+  btnSound.classList.toggle('off', !soundOn);
+});
+
+// ════════════════════════════════════════════
+//  FIX ZONE
+// ════════════════════════════════════════════
+let fixDirection = 'en-to-th'; // or 'th-to-en'
+
+const fixInput    = document.getElementById('fix-input');
+const fixOutput   = document.getElementById('fix-output');
+const fixConvert  = document.getElementById('fix-convert');
+const fixCopy     = document.getElementById('fix-copy');
+const fixSwap     = document.getElementById('fix-swap');
+const fixClearBtn = document.getElementById('fix-clear-btn');
+const garbageTag  = document.getElementById('garbage-tag');
+const dirFrom     = document.getElementById('dir-from');
+const dirTo       = document.getElementById('dir-to');
+const fixInputLbl = document.getElementById('fix-input-label');
+
+function updateDirectionUI() {
+  if (fixDirection === 'en-to-th') {
+    dirFrom.textContent = '🇺🇸 EN keys';
+    dirTo.textContent   = '🇹🇭 ไทย';
+    fixInputLbl.textContent = 'วางข้อความที่พิมพ์ผิด (กด EN keys แต่ต้องการภาษาไทย):';
+    fixInput.placeholder = 'เช่น: lสyfu  →  สวัสดี';
+  } else {
+    dirFrom.textContent = '🇹🇭 TH keys';
+    dirTo.textContent   = '🇺🇸 EN';
+    fixInputLbl.textContent = 'วางข้อความที่พิมพ์ผิด (กด TH keys แต่ต้องการภาษาอังกฤษ):';
+    fixInput.placeholder = 'เช่น: ้ำสสน  →  hello';
+  }
+}
+
+function convertText(text, direction) {
+  const map = direction === 'en-to-th' ? EN_TO_TH : TH_TO_EN;
+  return [...text].map(ch => map[ch] ?? ch).join('');
+}
+
+// Auto-detect garbage as user types in fix input
+fixInput.addEventListener('input', ()=>{
+  const text = fixInput.value.trim();
+  if (!text) { garbageTag.classList.remove('visible'); return; }
+
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total   = thChars + enChars;
+  if (total === 0) { garbageTag.classList.remove('visible'); return; }
+
+  const dominant = thChars / total >= 0.5 ? 'th' : 'en';
+  const isGarbage = dominant === 'th' ? isGarbageThai(text) : isGarbageEN(text);
+
+  if (isGarbage) {
+    garbageTag.classList.add('visible');
+    // Auto-set direction based on dominant script
+    fixDirection = dominant === 'th' ? 'th-to-en' : 'en-to-th';
+    updateDirectionUI();
+    // Live preview
+    const preview = convertText(text, fixDirection);
+    fixOutput.value = preview;
+    fixCopy.style.display = preview.trim() ? 'inline-block' : 'none';
+  } else {
+    garbageTag.classList.remove('visible');
+  }
+});
+
+fixConvert.addEventListener('click', ()=>{
+  const text = fixInput.value;
+  if (!text.trim()) return;
+  const result = convertText(text, fixDirection);
+  fixOutput.value = result;
+  fixCopy.style.display = result.trim() ? 'inline-block' : 'none';
+  // Celebration beep
+  beep(660,0.12,'sine');
+  setTimeout(()=>beep(880,0.1,'sine'),130);
+});
+
+fixCopy.addEventListener('click', ()=>{
+  navigator.clipboard.writeText(fixOutput.value).then(()=>{
+    const orig = fixCopy.textContent;
+    fixCopy.textContent = '✅ Copied!';
+    setTimeout(()=>{ fixCopy.textContent = orig; }, 1600);
+  });
+});
+
+fixSwap.addEventListener('click', ()=>{
+  fixDirection = fixDirection === 'en-to-th' ? 'th-to-en' : 'en-to-th';
+  updateDirectionUI();
+  fixOutput.value = '';
+  fixCopy.style.display = 'none';
+});
+
+fixClearBtn.addEventListener('click', ()=>{
+  fixInput.value = fixOutput.value = '';
+  garbageTag.classList.remove('visible');
+  fixCopy.style.display = 'none';
+});
+
+updateDirectionUI();
+
+// ════════════════════════════════════════════
+//  DARK / LIGHT MODE
+// ════════════════════════════════════════════
+const btnTheme = document.getElementById('btn-theme');
+let isDark = true;
+
+btnTheme.addEventListener('click', () => {
+  isDark = !isDark;
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  btnTheme.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+});
+
+// ════════════════════════════════════════════
+//  WEB NOTIFICATIONS (macOS native popup)
+// ════════════════════════════════════════════
+const btnNotify = document.getElementById('btn-notify');
+let notifyOn = false; // start off until user grants
+
+async function requestNotifyPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+btnNotify.addEventListener('click', async () => {
+  if (!notifyOn) {
+    const granted = await requestNotifyPermission();
+    if (granted) {
+      notifyOn = true;
+      btnNotify.textContent = '🔔 Notify ON';
+      btnNotify.classList.add('active');
+      new Notification('Font Switch Reminder', {
+        body: 'การแจ้งเตือนเปิดใช้งานแล้ว ✓',
+        icon: ''
+      });
+    } else {
+      btnNotify.textContent = '🔕 Notify (ถูกบล็อก)';
+      btnNotify.classList.remove('active');
+    }
+  } else {
+    notifyOn = false;
+    btnNotify.textContent = '🔕 Notify OFF';
+    btnNotify.classList.remove('active');
+  }
+});
+
+// Auto-request on load quietly (won't prompt if already decided)
+if (Notification.permission === 'granted') {
+  notifyOn = true;
+}
+
+function sendNativeNotify(title, body) {
+  if (!notifyOn || Notification.permission !== 'granted') return;
+  new Notification(title, { body, silent: false });
+}
+
+// Patch triggerAlert to also send native notification
+const _origTriggerAlert = triggerAlert;
+// Override with wrapper
+window._realTrigger = function(msg) {
+  const now = Date.now();
+  if (now - lastAlertTime < ALERT_COOLDOWN) return;
+  lastAlertTime = now;
+  alertCount++;
+  alertCountEl.textContent = alertCount;
+  alertBanner.textContent  = msg;
+  alertBanner.classList.add('visible');
+  textarea.classList.add('mismatch');
+  beep(520,0.2,'square');
+  setTimeout(()=>beep(440,0.18,'square'), 210);
+  flashScreen();
+  sendNativeNotify('⌨️ Font Switch Reminder', msg.replace(/^⚠️\s*/, ''));
+};
+// Replace the function reference used in analyze()
+// (re-bind analyze to use the patched version)
+textarea.removeEventListener('input', analyze);
+function analyzePatched() {
+  const text = textarea.value;
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total   = thChars + enChars;
+  charHint.textContent = text.length + ' chars';
+  enCountEl.textContent = enChars;
+  thCountEl.textContent = thChars;
+  if (total === 0) { clearAlert(); return; }
+  const thRatio = thChars / total;
+  const dominant = thRatio >= 0.5 ? 'th' : 'en';
+  setMode(dominant);
+  const minority = dominant === 'th' ? (enChars/total) : thRatio;
+  if (total >= 5 && minority > MIXED_THRESHOLD) {
+    window._realTrigger('⚠️ ตรวจพบภาษาปนกัน! ลืมกด Caps Lock หรือยัง?'); return;
+  }
+  if (dominant === 'th' && isGarbageThai(text)) {
+    window._realTrigger('⚠️ ข้อความดูมั่วไม่มีความหมาย! ลืมเปลี่ยนเป็น EN ก่อนพิมพ์?'); return;
+  }
+  if (dominant === 'en' && isGarbageEN(text)) {
+    window._realTrigger('⚠️ ดูเหมือนพิมพ์ด้วย TH layout แต่อยู่ใน EN mode!'); return;
+  }
+  clearAlert();
+}
+textarea.addEventListener('input', analyzePatched);
+
+// ════════════════════════════════════════════
+//  IDLE TIMER  (no language switch for X min)
+// ════════════════════════════════════════════
+const timerDisplay    = document.getElementById('timer-display');
+const timerProgress   = document.getElementById('timer-progress');
+const timerLimitInput = document.getElementById('timer-limit-input');
+
+let timerStart       = Date.now();
+let lastSwitchTime   = Date.now();
+let timerFired       = false;
+
+// Reset timer whenever language actually switches
+const _origSetMode = setMode;
+function setModePatched(lang) {
+  if (lang !== lastDetected) {
+    lastSwitchTime = Date.now();
+    timerStart     = Date.now();
+    timerFired     = false;
+    timerProgress.classList.remove('warning');
+    timerDisplay.classList.remove('warning');
+  }
+  _origSetMode(lang);
+}
+// Override setMode (simple reassign since it's a function declaration)
+// We patch it inline by redefining lastDetected tracking:
+let _lastLang = 'en';
+textarea.addEventListener('input', () => {
+  // track language switch for timer reset
+  const text = textarea.value;
+  const thChars = (text.match(THAI_RE)||[]).length;
+  const enChars = (text.match(LATIN_RE)||[]).length;
+  const total = thChars + enChars;
+  if (total === 0) return;
+  const dominant = thChars/total >= 0.5 ? 'th' : 'en';
+  if (dominant !== _lastLang) {
+    _lastLang = dominant;
+    lastSwitchTime = Date.now();
+    timerStart = Date.now();
+    timerFired = false;
+    timerProgress.classList.remove('warning');
+    timerDisplay.classList.remove('warning');
+  }
+});
+
+// Tick every second
+setInterval(() => {
+  const limitMs  = (parseFloat(timerLimitInput.value) || 5) * 60 * 1000;
+  const elapsed  = Date.now() - lastSwitchTime;
+  const ratio    = Math.min(elapsed / limitMs, 1);
+  const secs     = Math.floor(elapsed / 1000);
+  const mm       = Math.floor(secs / 60);
+  const ss       = String(secs % 60).padStart(2, '0');
+
+  timerDisplay.textContent = `${mm}:${ss}`;
+  timerProgress.style.width = (ratio * 100) + '%';
+
+  const isWarning = ratio >= 0.75;
+  timerProgress.classList.toggle('warning', isWarning);
+  timerDisplay.classList.toggle('warning', isWarning);
+
+  if (ratio >= 1 && !timerFired) {
+    timerFired = true;
+    beep(440, 0.3, 'triangle');
+    setTimeout(() => beep(440, 0.3, 'triangle'), 400);
+    sendNativeNotify('⏰ ยังไม่ได้เปลี่ยนภาษา!',
+      `ไม่ได้สลับภาษานาน ${mm} นาทีแล้ว — กด Caps Lock เช็คด้วยนะ`);
+    alertBanner.textContent = `⏰ ไม่ได้สลับภาษานาน ${mm} นาที! กด Caps Lock เช็คด้วย`;
+    alertBanner.classList.add('visible');
+    flashScreen();
+  }
+}, 1000);
+</script>
+</body>
+</html>

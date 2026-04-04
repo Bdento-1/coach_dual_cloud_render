@@ -31,7 +31,7 @@ EN_VOWELS       = set('aeiouAEIOU')
 # ── Tuning ───────────────────────────────────────────────────
 BUFFER_SIZE       = 6     # ตรวจสอบจาก 6 ตัวอักษรล่าสุด
 MIN_CHARS         = 4     # ต้องมีอย่างน้อย N ตัวก่อนตรวจ
-GARBAGE_COOLDOWN  = 3.0   # วินาที — ไม่เตือนซ้ำถี่เกินนี้
+GARBAGE_COOLDOWN  = 1.5   # วินาที — ไม่เตือนซ้ำถี่เกินนี้
 REMINDER_OPTIONS  = [1, 2, 3, 5, 10, 15, 30]
 
 SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"
@@ -188,23 +188,24 @@ class FontSwitchApp(rumps.App):
         for c in chars:
             # space / enter / punctuation → จบคำ → ตรวจแล้ว reset
             if c in (' ', '\r', '\n', '\t', '.', ',', '!', '?', ':', ';'):
-                if len(self.recent_chars) >= MIN_CHARS:
-                    if is_garbage(self.recent_chars):
-                        now = time.time()
-                        if now - self.last_alert_time >= GARBAGE_COOLDOWN:
-                            self.last_alert_time = now
-                            self._trigger_garbage_alert()
+                self._check_and_alert()
                 self.recent_chars.clear()
             elif c.isprintable() and ord(c) > 31:
                 self.recent_chars.append(c)
-                # ตรวจ real-time เมื่อมีพอ แต่ใช้ตัวอักษรตั้งแต่ต้นคำ
                 if len(self.recent_chars) >= MIN_CHARS:
-                    if is_garbage(self.recent_chars):
-                        now = time.time()
-                        if now - self.last_alert_time >= GARBAGE_COOLDOWN:
-                            self.last_alert_time = now
-                            self.recent_chars.clear()
-                            self._trigger_garbage_alert()
+                    self._check_and_alert()
+
+    def _check_and_alert(self):
+        if len(self.recent_chars) < MIN_CHARS:
+            return
+        if not is_garbage(self.recent_chars):
+            return
+        now = time.time()
+        if now - self.last_alert_time < GARBAGE_COOLDOWN:
+            return
+        self.last_alert_time = now
+        self.recent_chars.clear()
+        self._trigger_garbage_alert()
 
     def _trigger_garbage_alert(self):
         lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"

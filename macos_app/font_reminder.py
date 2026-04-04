@@ -31,7 +31,7 @@ EN_VOWELS       = set('aeiouAEIOU')
 # ── Tuning ───────────────────────────────────────────────────
 BUFFER_SIZE       = 6     # ตรวจสอบจาก 6 ตัวอักษรล่าสุด
 MIN_CHARS         = 4     # ต้องมีอย่างน้อย N ตัวก่อนตรวจ
-GARBAGE_COOLDOWN  = 1.5   # วินาที — ไม่เตือนซ้ำถี่เกินนี้
+GARBAGE_COOLDOWN  = 0.8   # วินาที — cooldown สั้นลง
 REMINDER_OPTIONS  = [1, 2, 3, 5, 10, 15, 30]
 
 SOUND_GARBAGE = "/System/Library/Sounds/Sosumi.aiff"
@@ -202,32 +202,34 @@ class FontSwitchApp(rumps.App):
             return
         now = time.time()
         if now - self.last_alert_time < GARBAGE_COOLDOWN:
+            self.recent_chars.clear()   # clear อยู่ดีแม้ยังอยู่ใน cooldown
             return
         self.last_alert_time = now
         self.recent_chars.clear()
-        # ── fire ใน thread แยก เพื่อไม่ block main run loop ──
         threading.Thread(target=self._trigger_garbage_alert, daemon=True).start()
 
     def _trigger_garbage_alert(self):
-        lang_str = "ไทย 🇹🇭" if self.current_lang == "th" else "English 🇺🇸"
-        print(f"[ALERT] garbage detected — input: {self.current_lang}")
+        ts = time.strftime('%H:%M:%S')
+        print(f"[ALERT {ts}] garbage — lang={self.current_lang}")
 
-        # เสียงเตือน (ไม่ขึ้นกับ notification)
+        # เปลี่ยน icon ชั่วคราวเพื่อให้เห็นใน menu bar
+        orig = self.title
+        self.title = "⚠️"
+        threading.Timer(1.5, lambda: setattr(self, 'title', orig)).start()
+
+        # เสียง — Popen ไม่ block
         if self.sound_enabled:
             play_sound(SOUND_GARBAGE)
-            time.sleep(0.5)
+            time.sleep(0.35)
             play_sound(SOUND_GARBAGE)
 
-        # ใช้ osascript แทน rumps.notification เพราะเสถียรกว่า
-        msg  = f"ตรวจพบข้อความมั่วไม่มีความหมาย — กด Caps Lock ด่วน!"
-        title = "⚠️ ลืมเปลี่ยนภาษา!"
-        try:
-            subprocess.run([
-                "osascript", "-e",
-                f'display notification "{msg}" with title "{title}"'
-            ], timeout=3, capture_output=True)
-        except Exception as e:
-            print(f"[notify error] {e}")
+        # notification — Popen ไม่ block (ไม่รอ response)
+        subprocess.Popen(
+            ["osascript", "-e",
+             'display notification "ตรวจพบพิมพ์ผิดภาษา — กด Caps Lock ด่วน!" '
+             'with title "⚠️ ลืมเปลี่ยนภาษา!"'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
     # ── background loop: input source + idle timer ───────────
     def _source_loop(self):

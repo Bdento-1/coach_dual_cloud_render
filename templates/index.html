@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Font Switch Reminder · EN ⇄ TH</title>
+  <style>
+    :root {
+      --bg: #0f0f14;
+      --card: #1a1a24;
+      --border: #2e2e42;
+      --en-color: #4f9eff;
+      --th-color: #ff6b6b;
+      --ok-color: #4caf86;
+      --warn-color: #ffb347;
+      --text: #e8e8f0;
+      --dim: #7070a0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+    }
+
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--dim);
+      margin-bottom: 28px;
+      text-transform: uppercase;
+    }
+
+    /* ── Current mode pill ── */
+    #mode-display {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 14px 32px;
+      margin-bottom: 24px;
+      transition: border-color 0.2s;
+    }
+
+    #mode-flag {
+      font-size: 2.2rem;
+      line-height: 1;
+    }
+
+    #mode-label {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    #mode-display.lang-en { border-color: var(--en-color); }
+    #mode-display.lang-en #mode-label { color: var(--en-color); }
+    #mode-display.lang-th { border-color: var(--th-color); }
+    #mode-display.lang-th #mode-label { color: var(--th-color); }
+
+    /* ── Alert banner ── */
+    #alert-banner {
+      width: 100%;
+      max-width: 540px;
+      background: var(--warn-color);
+      color: #1a1a00;
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-align: center;
+      display: none;
+      margin-bottom: 20px;
+      animation: pulse 0.6s ease-in-out infinite alternate;
+    }
+    #alert-banner.visible { display: block; }
+
+    @keyframes pulse {
+      from { opacity: 1; transform: scale(1); }
+      to   { opacity: 0.85; transform: scale(1.012); }
+    }
+
+    /* ── Typing area ── */
+    #textarea-wrap {
+      width: 100%;
+      max-width: 540px;
+      position: relative;
+      margin-bottom: 20px;
+    }
+
+    #typing-area {
+      width: 100%;
+      min-height: 180px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--text);
+      font-size: 1.1rem;
+      line-height: 1.65;
+      padding: 18px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    #typing-area:focus { border-color: var(--en-color); }
+    #typing-area.mismatch { border-color: var(--warn-color) !important; }
+
+    #char-hint {
+      position: absolute;
+      bottom: 10px;
+      right: 14px;
+      font-size: 0.75rem;
+      color: var(--dim);
+      pointer-events: none;
+    }
+
+    /* ── Stats row ── */
+    .stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      width: 100%;
+      max-width: 540px;
+    }
+
+    .stat-card {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .stat-card.en .stat-value { color: var(--en-color); }
+    .stat-card.th .stat-value { color: var(--th-color); }
+    .stat-card.warn .stat-value { color: var(--warn-color); }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 540px;
+      margin-bottom: 28px;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 22px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    button:active { transform: scale(0.96); }
+
+    #btn-clear  { background: var(--border); color: var(--text); }
+    #btn-sound  { background: var(--card); color: var(--dim); border: 1px solid var(--border); }
+    #btn-sound.on { color: var(--ok-color); border-color: var(--ok-color); }
+
+    /* ── Shortcut reminder ── */
+    .shortcut-box {
+      width: 100%;
+      max-width: 540px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+    }
+
+    .shortcut-box h2 {
+      font-size: 0.8rem;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 14px;
+    }
+
+    .shortcut-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+    }
+
+    kbd {
+      background: #2a2a3c;
+      border: 1px solid #44445a;
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 0.82rem;
+      font-family: monospace;
+      color: #c8c8e8;
+      white-space: nowrap;
+    }
+
+    .arrow { color: var(--dim); font-size: 0.8rem; }
+
+    /* ── Recent switch log ── */
+    #log {
+      width: 100%;
+      max-width: 540px;
+      margin-top: 20px;
+    }
+
+    #log h2 {
+      font-size: 0.8rem;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 10px;
+    }
+
+    #log-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    #log-list li {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 0.82rem;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #log-list li .switch-from { color: var(--en-color); }
+    #log-list li .switch-to   { color: var(--th-color); }
+    #log-list li.th-to-en .switch-from { color: var(--th-color); }
+    #log-list li.th-to-en .switch-to   { color: var(--en-color); }
+
+    /* ── Overlay flash ── */
+    #flash-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: var(--warn-color);
+      opacity: 0;
+      transition: opacity 0.08s;
+      z-index: 999;
+    }
+  </style>
+</head>
+<body>
+
+<div id="flash-overlay"></div>
+
+<h1>⌨️ Font Switch Reminder</h1>
+
+<div id="mode-display" class="lang-en">
+  <span id="mode-flag">🇺🇸</span>
+  <span id="mode-label">ENGLISH</span>
+</div>
+
+<div id="alert-banner">⚠️ ลืมเปลี่ยนภาษา! กด <kbd style="background:#fff3;border:none">Caps Lock</kbd> หรือ <kbd style="background:#fff3;border:none">⌘Space</kbd></div>
+
+<div id="textarea-wrap">
+  <textarea id="typing-area" placeholder="พิมพ์ข้อความที่นี่เพื่อตรวจสอบภาษา..."></textarea>
+  <span id="char-hint">0 chars</span>
+</div>
+
+<div class="stats">
+  <div class="stat-card en">
+    <div class="stat-value" id="en-count">0</div>
+    <div class="stat-label">EN chars</div>
+  </div>
+  <div class="stat-card th">
+    <div class="stat-value" id="th-count">0</div>
+    <div class="stat-label">TH chars</div>
+  </div>
+  <div class="stat-card warn">
+    <div class="stat-value" id="alert-count">0</div>
+    <div class="stat-label">Alerts</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button id="btn-clear">🗑 Clear</button>
+  <button id="btn-sound" class="on">🔔 Sound ON</button>
+</div>
+
+<div class="shortcut-box">
+  <h2>⌘ macOS Keyboard Shortcuts</h2>
+  <div class="shortcut-row">
+    <kbd>Caps Lock</kbd>
+    <span class="arrow">→</span>
+    <span>สลับภาษาไทย / อังกฤษ (ค่าเริ่มต้น macOS)</span>
+  </div>
+  <div class="shortcut-row">
+    <kbd>⌘</kbd> + <kbd>Space</kbd>
+    <span class="arrow">→</span>
+    <span>เปิด Spotlight / สลับ Input Source</span>
+  </div>
+  <div class="shortcut-row">
+    <kbd>⌃</kbd> + <kbd>Space</kbd>
+    <span class="arrow">→</span>
+    <span>สลับ Input Source ถัดไป</span>
+  </div>
+  <div class="shortcut-row" style="margin-bottom:0">
+    <kbd>⌃</kbd> + <kbd>⌥</kbd> + <kbd>Space</kbd>
+    <span class="arrow">→</span>
+    <span>เลือก Input Source จากเมนู</span>
+  </div>
+</div>
+
+<div id="log">
+  <h2>📋 Switch Log</h2>
+  <ul id="log-list"></ul>
+</div>
+
+<script>
+  // ── Thai Unicode range: U+0E00–U+0E7F ──
+  const THAI_RE   = /[\u0E00-\u0E7F]/g;
+  const LATIN_RE  = /[A-Za-z]/g;
+  const MIXED_THRESHOLD = 0.08; // 8% minority triggers alert
+
+  let soundOn = true;
+  let alertCount = 0;
+  let lastDetected = "en";
+  let lastAlertTime = 0;
+  const ALERT_COOLDOWN = 3000; // ms between consecutive alerts
+
+  const textarea     = document.getElementById("typing-area");
+  const modeDisplay  = document.getElementById("mode-display");
+  const modeFlag     = document.getElementById("mode-flag");
+  const modeLabel    = document.getElementById("mode-label");
+  const alertBanner  = document.getElementById("alert-banner");
+  const enCount      = document.getElementById("en-count");
+  const thCount      = document.getElementById("th-count");
+  const alertCountEl = document.getElementById("alert-count");
+  const charHint     = document.getElementById("char-hint");
+  const logList      = document.getElementById("log-list");
+  const btnClear     = document.getElementById("btn-clear");
+  const btnSound     = document.getElementById("btn-sound");
+  const flashOverlay = document.getElementById("flash-overlay");
+
+  // ── AudioContext beep ──
+  function beep(freq = 660, duration = 0.18, type = "sine") {
+    if (!soundOn) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  // ── Flash screen briefly ──
+  function flashScreen() {
+    flashOverlay.style.opacity = "0.18";
+    setTimeout(() => { flashOverlay.style.opacity = "0"; }, 180);
+  }
+
+  // ── Add to switch log ──
+  function addLog(from, to) {
+    const li = document.createElement("li");
+    if (from === "en") {
+      li.innerHTML = `<span><span class="switch-from">EN</span> → <span class="switch-to">TH</span></span><span>${new Date().toLocaleTimeString()}</span>`;
+    } else {
+      li.classList.add("th-to-en");
+      li.innerHTML = `<span><span class="switch-from">TH</span> → <span class="switch-to">EN</span></span><span>${new Date().toLocaleTimeString()}</span>`;
+    }
+    logList.prepend(li);
+    if (logList.children.length > 20) logList.lastElementChild.remove();
+  }
+
+  // ── Update mode pill ──
+  function setMode(lang) {
+    if (lang === lastDetected) return;
+    addLog(lastDetected, lang);
+    lastDetected = lang;
+    modeDisplay.className = "lang-" + lang;
+    if (lang === "en") {
+      modeFlag.textContent = "🇺🇸";
+      modeLabel.textContent = "ENGLISH";
+    } else {
+      modeFlag.textContent = "🇹🇭";
+      modeLabel.textContent = "ภาษาไทย";
+    }
+  }
+
+  // ── Main analysis ──
+  function analyze() {
+    const text = textarea.value;
+    const thChars = (text.match(THAI_RE) || []).length;
+    const enChars = (text.match(LATIN_RE) || []).length;
+    const total   = thChars + enChars;
+
+    charHint.textContent = text.length + " chars";
+    enCount.textContent  = enChars;
+    thCount.textContent  = thChars;
+
+    if (total === 0) {
+      alertBanner.classList.remove("visible");
+      textarea.classList.remove("mismatch");
+      return;
+    }
+
+    const thRatio = thChars / total;
+    const enRatio = enChars / total;
+
+    // dominant language
+    const dominant = thRatio >= 0.5 ? "th" : "en";
+    setMode(dominant);
+
+    // mixed-language alert (minority chars detected above threshold)
+    const minorityRatio = dominant === "th" ? enRatio : thRatio;
+    const isMixed = total >= 5 && minorityRatio > MIXED_THRESHOLD;
+
+    const now = Date.now();
+    if (isMixed && now - lastAlertTime > ALERT_COOLDOWN) {
+      lastAlertTime = now;
+      alertCount++;
+      alertCountEl.textContent = alertCount;
+      alertBanner.classList.add("visible");
+      textarea.classList.add("mismatch");
+      beep(520, 0.22, "square");
+      setTimeout(() => beep(440, 0.18, "square"), 220);
+      flashScreen();
+    } else if (!isMixed) {
+      alertBanner.classList.remove("visible");
+      textarea.classList.remove("mismatch");
+    }
+  }
+
+  // ── Per-keystroke quick check (last ~4 chars) ──
+  textarea.addEventListener("keyup", (e) => {
+    analyze();
+
+    // Quick: last 4 chars typed feel wrong?
+    const text = textarea.value;
+    if (text.length < 4) return;
+    const recent = text.slice(-4);
+    const recentTh = (recent.match(THAI_RE) || []).length;
+    const recentEn = (recent.match(LATIN_RE) || []).length;
+    const recentTotal = recentTh + recentEn;
+    if (recentTotal < 2) return;
+
+    const dominantRecent = recentTh >= recentEn ? "th" : "en";
+    if (dominantRecent !== lastDetected && Date.now() - lastAlertTime > ALERT_COOLDOWN) {
+      // sudden switch detected without clearing
+      lastAlertTime = Date.now();
+      alertCount++;
+      alertCountEl.textContent = alertCount;
+      alertBanner.classList.add("visible");
+      textarea.classList.add("mismatch");
+      beep(660, 0.15, "sine");
+      flashScreen();
+    }
+  });
+
+  // ── Clear button ──
+  btnClear.addEventListener("click", () => {
+    textarea.value = "";
+    enCount.textContent = "0";
+    thCount.textContent = "0";
+    charHint.textContent = "0 chars";
+    alertBanner.classList.remove("visible");
+    textarea.classList.remove("mismatch");
+  });
+
+  // ── Sound toggle ──
+  btnSound.addEventListener("click", () => {
+    soundOn = !soundOn;
+    btnSound.textContent = soundOn ? "🔔 Sound ON" : "🔕 Sound OFF";
+    btnSound.classList.toggle("on", soundOn);
+  });
+</script>
+</body>
+</html>

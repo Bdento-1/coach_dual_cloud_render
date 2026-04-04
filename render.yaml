@@ -1,21 +1,8 @@
 services:
   - type: web
-    name: gatekeeper-voicecoach
+    name: font-switch-reminder
     env: python
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 180 --workers 1 --threads 2
-    envVars:
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: WEBHOOK_TOKEN
-        sync: false
-      - key: VOICE
-        value: alloy
-      - key: LLM_MODEL
-        value: gpt-5
-      - key: TTS_MODEL
-        value: gpt-4o-mini-tts
-      - key: USER_TAG
-        value: kunthan-cloud-01
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 60 --workers 1 --threads 2

@@ -127,6 +127,7 @@ class FontSwitchApp(rumps.App):
         self.mon_item    = rumps.MenuItem("🔍 ตรวจ garbage: ปิด", callback=self.toggle_monitor)
         self.sound_item  = rumps.MenuItem("🔔 เสียงเตือน: เปิด",  callback=self.toggle_sound)
         self.timer_item  = rumps.MenuItem(f"⏱ เตือนทุก {self.reminder_min} นาที", callback=self.cycle_timer)
+        self.debug_item  = rumps.MenuItem("🐛 Debug: แสดง buffer", callback=self.show_buffer)
         self.access_item = rumps.MenuItem("⚙️ วิธีให้สิทธิ์ Accessibility", callback=self.open_accessibility)
         quit_item        = rumps.MenuItem("❌ ออก", callback=rumps.quit_application)
 
@@ -137,6 +138,7 @@ class FontSwitchApp(rumps.App):
             self.sound_item,
             self.timer_item,
             None,
+            self.debug_item,
             self.access_item,
             None,
             quit_item,
@@ -268,6 +270,15 @@ class FontSwitchApp(rumps.App):
         self.reminder_min = REMINDER_OPTIONS[(idx + 1) % len(REMINDER_OPTIONS)]
         self.last_switch_time = time.time()
         sender.title = f"⏱ เตือนทุก {self.reminder_min} นาที"
+
+    def show_buffer(self, _):
+        buf = self.recent_chars if self.recent_chars else ["(ว่าง)"]
+        chars_str = " ".join(repr(c) for c in buf)
+        unicodes = " ".join(f"U+{ord(c):04X}" for c in self.recent_chars) if self.recent_chars else "-"
+        rumps.alert(
+            title="🐛 Debug Buffer",
+            message=f"monitoring: {self.monitoring}\n\nbuffer: {chars_str}\n\nunicode: {unicodes}\n\ninput: {self.current_lang}"
+        )
 
     def open_accessibility(self, _):
         subprocess.run([
